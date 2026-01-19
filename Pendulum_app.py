@@ -1,0 +1,661 @@
+"""
+Double Pendulum Simulator - PyQt6 Version
+Advanced GUI with real-time physics simulation
+Multi-threaded architecture for smooth performance
+"""
+
+import sys
+import numpy as np
+from collections import deque
+from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
+                             QHBoxLayout, QTabWidget, QLabel, QSlider, QPushButton,
+                             QLineEdit, QCheckBox, QGridLayout, QGroupBox)
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QObject
+from PyQt6.QtGui import QPainter, QPen, QColor, QBrush
+import pyqtgraph as pg
+
+
+class PendulumSimulator(QObject):
+    """Physics simulation running in separate thread"""
+    
+    data_ready = pyqtSignal(dict)
+    
+    def __init__(self):
+        super().__init__()
+        
+        # Simulation parameters
+        self.L1 = 2.0
+        self.L2 = 2.0
+        self.m1 = 1.0
+        self.m2 = 1.0
+        self.g = 9.81
+        self.dt = 0.001  # 1ms timestep
+        
+        # State vector [theta1, theta2, omega1, omega2]
+        self.state = np.array([120 * np.pi / 180, -100 * np.pi / 180, 0.0, 0.0])
+        self.time = 0.0
+        
+        # Data buffers (circular buffers)
+        self.buffer_size = 100000
+        self.buffer_index = 0
+        self.time_buffer = np.zeros(self.buffer_size)
+        self.theta1_buffer = np.zeros(self.buffer_size)
+        self.theta2_buffer = np.zeros(self.buffer_size)
+        self.omega1_buffer = np.zeros(self.buffer_size)
+        self.omega2_buffer = np.zeros(self.buffer_size)
+        
+        # Control flags
+        self.is_running = False
+        
+        # Timer for simulation
+        self.timer = QTimer()
+        self.timer.timeout.connect(self.step)
+        
+    def start(self):
+        """Start simulation"""
+        self.is_running = True
+        self.timer.start(1)  # 1ms timer for 1000 Hz
+        
+    def stop(self):
+        """Stop simulation"""
+        self.is_running = False
+        self.timer.stop()
+        
+    def reset(self, theta1, theta2):
+        """Reset simulation with new initial conditions"""
+        self.state = np.array([theta1, theta2, 0.0, 0.0])
+        self.time = 0.0
+        self.buffer_index = 0
+        
+    def set_parameters(self, L1, L2, m1, m2):
+        """Update pendulum parameters"""
+        self.L1 = L1
+        self.L2 = L2
+        self.m1 = m1
+        self.m2 = m2
+        
+    def pendulum_derivatives(self, state):
+        """Calculate derivatives for double pendulum equations"""
+        th1, th2, w1, w2 = state
+        delta = th2 - th1
+        
+        den1 = (self.m1 + self.m2) * self.L1 - self.m2 * self.L1 * np.cos(delta)**2
+        den2 = (self.L2 / self.L1) * den1
+        
+        dth1 = w1
+        dth2 = w2
+        
+        dw1 = (self.m2 * self.L1 * w1**2 * np.sin(delta) * np.cos(delta) +
+               self.m2 * self.g * np.sin(th2) * np.cos(delta) +
+               self.m2 * self.L2 * w2**2 * np.sin(delta) -
+               (self.m1 + self.m2) * self.g * np.sin(th1)) / den1
+        
+        dw2 = (-self.m2 * self.L2 * w2**2 * np.sin(delta) * np.cos(delta) +
+               (self.m1 + self.m2) * (self.g * np.sin(th1) * np.cos(delta) -
+               self.L1 * w1**2 * np.sin(delta) - self.g * np.sin(th2))) / den2
+        
+        return np.array([dth1, dth2, dw1, dw2])
+    
+    def rk4_step(self):
+        """Runge-Kutta 4th order integration"""
+        k1 = self.pendulum_derivatives(self.state)
+        k2 = self.pendulum_derivatives(self.state + 0.5 * self.dt * k1)
+        k3 = self.pendulum_derivatives(self.state + 0.5 * self.dt * k2)
+        k4 = self.pendulum_derivatives(self.state + self.dt * k3)
+        
+        self.state += self.dt / 6 * (k1 + 2*k2 + 2*k3 + k4)
+        self.time += self.dt
+        
+    def step(self):
+        """Single simulation step"""
+        if not self.is_running:
+            return
+            
+        # Perform RK4 integration
+        self.rk4_step()
+        
+        # Store in circular buffer
+        idx = self.buffer_index % self.buffer_size
+        self.time_buffer[idx] = self.time
+        self.theta1_buffer[idx] = self.state[0]
+        self.theta2_buffer[idx] = self.state[1]
+        self.omega1_buffer[idx] = self.state[2]
+        self.omega2_buffer[idx] = self.state[3]
+        self.buffer_index += 1
+        
+        # Emit data every 30 steps (30 Hz update rate)
+        if self.buffer_index % 30 == 0:
+            self.emit_data()
+    
+    def emit_data(self):
+        """Send current state to GUI"""
+        # Calculate positions
+        x1 = self.L1 * np.sin(self.state[0])
+        y1 = self.L1 * np.cos(self.state[0])
+        x2 = x1 + self.L2 * np.sin(self.state[1])
+        y2 = y1 + self.L2 * np.cos(self.state[1])
+        
+        # Calculate energy
+        E_kin = self.calculate_kinetic_energy()
+        E_pot = self.calculate_potential_energy()
+        
+        data = {
+            'time': self.time,
+            'theta1': self.state[0],
+            'theta2': self.state[1],
+            'omega1': self.state[2],
+            'omega2': self.state[3],
+            'x1': x1, 'y1': y1,
+            'x2': x2, 'y2': y2,
+            'E_kinetic': E_kin,
+            'E_potential': E_pot,
+            'E_total': E_kin + E_pot
+        }
+        
+        self.data_ready.emit(data)
+    
+    def calculate_kinetic_energy(self):
+        """Calculate total kinetic energy"""
+        th1, th2, w1, w2 = self.state
+        v1_sq = (self.L1 * w1)**2
+        v2_sq = (self.L1 * w1)**2 + (self.L2 * w2)**2 + \
+                2 * self.L1 * self.L2 * w1 * w2 * np.cos(th1 - th2)
+        return 0.5 * self.m1 * v1_sq + 0.5 * self.m2 * v2_sq
+    
+    def calculate_potential_energy(self):
+        """Calculate total potential energy"""
+        th1, th2 = self.state[0], self.state[1]
+        y1 = -self.L1 * np.cos(th1)
+        y2 = y1 - self.L2 * np.cos(th2)
+        return self.m1 * self.g * y1 + self.m2 * self.g * y2
+    
+    def get_history(self, max_points=10000):
+        """Get simulation history for plotting"""
+        n = min(self.buffer_index, self.buffer_size)
+        if n > max_points:
+            indices = np.linspace(0, n-1, max_points, dtype=int)
+        else:
+            indices = np.arange(n)
+        
+        return {
+            'time': self.time_buffer[indices],
+            'theta1': self.theta1_buffer[indices],
+            'theta2': self.theta2_buffer[indices],
+            'omega1': self.omega1_buffer[indices],
+            'omega2': self.omega2_buffer[indices]
+        }
+
+
+class PendulumCanvas(QWidget):
+    """Custom widget for drawing pendulum animation"""
+    
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setMinimumSize(600, 600)
+        
+        # Pendulum state
+        self.x1, self.y1 = 0, 0
+        self.x2, self.y2 = 0, 0
+        self.L1, self.L2 = 2.0, 2.0
+        
+        # Trail
+        self.trail = deque(maxlen=100) #100 length of a trail
+        self.show_pendulum = True
+        self.show_trail = True
+        
+        # Inicializuj počiatočnú pozíciu (120°, -10°)
+        self.set_initial_position(120, -100)
+        
+    def set_initial_position(self, theta1_deg, theta2_deg):
+        """Set initial pendulum position (in degrees)"""
+        theta1 = theta1_deg * np.pi / 180
+        theta2 = theta2_deg * np.pi / 180
+        
+        # Vypočítaj pozície
+        self.x1 = self.L1 * np.sin(theta1)
+        self.y1 = self.L1 * np.cos(theta1)
+        self.x2 = self.x1 + self.L2 * np.sin(theta2)
+        self.y2 = self.y1 + self.L2 * np.cos(theta2)
+        
+        self.update()  # Prekreslí canvas
+    
+    def update_state(self, x1, y1, x2, y2):
+        """Update pendulum positions"""
+        self.x1, self.y1 = x1, y1
+        self.x2, self.y2 = x2, y2
+        if self.show_trail:
+            self.trail.append((x2, y2))
+        self.update()
+        
+    def paintEvent(self, event):
+        """Draw pendulum"""
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        
+        # Setup coordinate system
+        w, h = self.width(), self.height()
+        center_x, center_y = w / 2, h / 2
+        scale = min(w, h) / (2.6 * (self.L1 + self.L2))
+        
+        # Draw trail
+        if self.show_trail and len(self.trail) > 1:
+            # Zmeň farbu trailu tu! (R, G, B)
+            painter.setPen(QPen(QColor(255, 255, 255), 1))  #farba a sirka 1
+            for i in range(1, len(self.trail)):
+                x1_px = center_x + self.trail[i-1][0] * scale
+                y1_px = center_y + self.trail[i-1][1] * scale
+                x2_px = center_x + self.trail[i][0] * scale
+                y2_px = center_y + self.trail[i][1] * scale
+                painter.drawLine(int(x1_px), int(y1_px), int(x2_px), int(y2_px))
+        
+        if self.show_pendulum:
+            # Convert to pixel coordinates
+            pivot_x, pivot_y = center_x, center_y
+            bob1_x = center_x + self.x1 * scale
+            bob1_y = center_y + self.y1 * scale
+            bob2_x = center_x + self.x2 * scale
+            bob2_y = center_y + self.y2 * scale
+            
+            # Draw rods
+            painter.setPen(QPen(QColor(0, 50, 180), 3))
+            painter.drawLine(int(pivot_x), int(pivot_y), int(bob1_x), int(bob1_y))
+            
+            painter.setPen(QPen(QColor(200, 0, 0), 3))
+            painter.drawLine(int(bob1_x), int(bob1_y), int(bob2_x), int(bob2_y))
+            
+            # Draw bobs
+            painter.setBrush(QBrush(QColor(0, 80, 255)))
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.drawEllipse(int(bob1_x - 10), int(bob1_y - 10), 20, 20)
+            
+            painter.setBrush(QBrush(QColor(255, 50, 0)))
+            painter.drawEllipse(int(bob2_x - 10), int(bob2_y - 10), 20, 20)
+            
+            # Draw pivot
+            painter.setBrush(QBrush(QColor(100, 100, 100)))
+            painter.drawEllipse(int(pivot_x - 5), int(pivot_y - 5), 10, 10)
+
+
+class DoublePendulumApp(QMainWindow):
+    """Main application window"""
+    
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("Double Pendulum Simulator - PyQt6")
+        self.setGeometry(100, 100, 1200, 800)
+        
+        # Create simulator
+        self.simulator = PendulumSimulator()
+        self.simulator.data_ready.connect(self.update_visualization)
+        
+        # Setup UI
+        self.setup_ui()
+        
+        # Initialize plots
+        self.init_plots()
+        
+    def setup_ui(self):
+        """Create user interface"""
+        central_widget = QWidget()
+        self.setCentralWidget(central_widget)
+        
+        # Main layout
+        main_layout = QVBoxLayout(central_widget)
+        
+        # Tab widget
+        self.tabs = QTabWidget()
+        main_layout.addWidget(self.tabs)
+        
+        # Create tabs
+        self.create_simulation_tab()
+        self.create_graphs_tab()
+        self.create_analysis_tab()
+        
+    def create_simulation_tab(self):
+        """Tab 1: Simulation and Control"""
+        tab = QWidget()
+        layout = QHBoxLayout(tab)
+        
+        # Left panel - controls
+        control_panel = QWidget()
+        control_layout = QVBoxLayout(control_panel)
+        control_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+        
+        # Parameters group
+        params_group = QGroupBox("Parameters")
+        params_layout = QGridLayout()
+        
+        # Length sliders
+        params_layout.addWidget(QLabel("L1 (m):"), 0, 0)
+        self.L1_slider = QSlider(Qt.Orientation.Horizontal)
+        self.L1_slider.setRange(10, 500)
+        self.L1_slider.setValue(200)
+        self.L1_slider.valueChanged.connect(self.update_parameters)
+        params_layout.addWidget(self.L1_slider, 0, 1)
+        self.L1_label = QLabel("2.0")
+        params_layout.addWidget(self.L1_label, 0, 2)
+        
+        params_layout.addWidget(QLabel("L2 (m):"), 1, 0)
+        self.L2_slider = QSlider(Qt.Orientation.Horizontal)
+        self.L2_slider.setRange(10, 500)
+        self.L2_slider.setValue(200)
+        self.L2_slider.valueChanged.connect(self.update_parameters)
+        params_layout.addWidget(self.L2_slider, 1, 1)
+        self.L2_label = QLabel("2.0")
+        params_layout.addWidget(self.L2_label, 1, 2)
+        
+        # Mass sliders
+        params_layout.addWidget(QLabel("m1 (kg):"), 2, 0)
+        self.m1_slider = QSlider(Qt.Orientation.Horizontal)
+        self.m1_slider.setRange(10, 2000)
+        self.m1_slider.setValue(100)
+        self.m1_slider.valueChanged.connect(self.update_parameters)
+        params_layout.addWidget(self.m1_slider, 2, 1)
+        self.m1_label = QLabel("1.0")
+        params_layout.addWidget(self.m1_label, 2, 2)
+        
+        params_layout.addWidget(QLabel("m2 (kg):"), 3, 0)
+        self.m2_slider = QSlider(Qt.Orientation.Horizontal)
+        self.m2_slider.setRange(10, 2000)
+        self.m2_slider.setValue(100)
+        self.m2_slider.valueChanged.connect(self.update_parameters)
+        params_layout.addWidget(self.m2_slider, 3, 1)
+        self.m2_label = QLabel("1.0")
+        params_layout.addWidget(self.m2_label, 3, 2)
+        
+        # Angle sliders
+        params_layout.addWidget(QLabel("θ1 (°):"), 4, 0)
+        self.theta1_slider = QSlider(Qt.Orientation.Horizontal)
+        self.theta1_slider.setRange(-180, 180)
+        self.theta1_slider.setValue(120)
+        self.theta1_slider.valueChanged.connect(self.update_initial_angles)
+        params_layout.addWidget(self.theta1_slider, 4, 1)
+        self.theta1_label = QLabel("120")
+        params_layout.addWidget(self.theta1_label, 4, 2)
+        
+        params_layout.addWidget(QLabel("θ2 (°):"), 5, 0)
+        self.theta2_slider = QSlider(Qt.Orientation.Horizontal)
+        self.theta2_slider.setRange(-180, 180)
+        self.theta2_slider.setValue(-100)
+        self.theta2_slider.valueChanged.connect(self.update_initial_angles)
+        params_layout.addWidget(self.theta2_slider, 5, 1)
+        self.theta2_label = QLabel("-100")
+        params_layout.addWidget(self.theta2_label, 5, 2)
+        
+        params_group.setLayout(params_layout)
+        control_layout.addWidget(params_group)
+        
+        # Control buttons
+        btn_layout = QVBoxLayout()
+        self.start_btn = QPushButton("Start Simulation")
+        self.start_btn.clicked.connect(self.start_simulation)
+        btn_layout.addWidget(self.start_btn)
+        
+        self.stop_btn = QPushButton("Stop Simulation")
+        self.stop_btn.clicked.connect(self.stop_simulation)
+        self.stop_btn.setEnabled(False)
+        btn_layout.addWidget(self.stop_btn)
+        
+        self.reset_btn = QPushButton("Reset")
+        self.reset_btn.clicked.connect(self.reset_simulation)
+        btn_layout.addWidget(self.reset_btn)
+        
+        control_layout.addLayout(btn_layout)
+        
+        # Display options
+        display_group = QGroupBox("Display")
+        display_layout = QVBoxLayout()
+        self.show_pendulum_cb = QCheckBox("Show Pendulum")
+        self.show_pendulum_cb.setChecked(True)
+        self.show_pendulum_cb.stateChanged.connect(self.toggle_pendulum)
+        display_layout.addWidget(self.show_pendulum_cb)
+        
+        self.show_trail_cb = QCheckBox("Show Trail")
+        self.show_trail_cb.setChecked(True)
+        self.show_trail_cb.stateChanged.connect(self.toggle_trail)
+        display_layout.addWidget(self.show_trail_cb)
+        
+        display_group.setLayout(display_layout)
+        control_layout.addWidget(display_group)
+        
+        # Status display
+        status_group = QGroupBox("Status")
+        status_layout = QVBoxLayout()
+        self.time_label = QLabel("Time: 0.00 s")
+        self.energy_label = QLabel("Energy: 0.00 J")
+        status_layout.addWidget(self.time_label)
+        status_layout.addWidget(self.energy_label)
+        status_group.setLayout(status_layout)
+        control_layout.addWidget(status_group)
+        
+        control_layout.addStretch()
+        
+        # Right panel - visualization
+        self.canvas = PendulumCanvas()
+        
+        # Add to tab layout
+        layout.addWidget(control_panel, 1)
+        layout.addWidget(self.canvas, 2)
+        
+        self.tabs.addTab(tab, "Simulation")
+        
+    def create_graphs_tab(self):
+        """Tab 2: Time Graphs"""
+        tab = QWidget()
+        layout = QGridLayout(tab)
+        
+        # Create plots
+        self.plot_theta1 = pg.PlotWidget(title="θ1 vs Time")
+        self.plot_theta1.setLabel('left', 'θ1', units='rad')
+        self.plot_theta1.setLabel('bottom', 'Time', units='s')
+        self.curve_theta1 = self.plot_theta1.plot(pen='b')
+        
+        self.plot_theta2 = pg.PlotWidget(title="θ2 vs Time")
+        self.plot_theta2.setLabel('left', 'θ2', units='rad')
+        self.plot_theta2.setLabel('bottom', 'Time', units='s')
+        self.curve_theta2 = self.plot_theta2.plot(pen='r')
+        
+        self.plot_omega1 = pg.PlotWidget(title="ω1 vs Time")
+        self.plot_omega1.setLabel('left', 'ω1', units='rad/s')
+        self.plot_omega1.setLabel('bottom', 'Time', units='s')
+        self.curve_omega1 = self.plot_omega1.plot(pen='g')
+        
+        self.plot_omega2 = pg.PlotWidget(title="ω2 vs Time")
+        self.plot_omega2.setLabel('left', 'ω2', units='rad/s')
+        self.plot_omega2.setLabel('bottom', 'Time', units='s')
+        self.curve_omega2 = self.plot_omega2.plot(pen='m')
+        
+        layout.addWidget(self.plot_theta1, 0, 0)
+        layout.addWidget(self.plot_theta2, 0, 1)
+        layout.addWidget(self.plot_omega1, 1, 0)
+        layout.addWidget(self.plot_omega2, 1, 1)
+        
+        self.tabs.addTab(tab, "Time Graphs")
+        
+    def create_analysis_tab(self):
+        """Tab 3: Phase Diagrams & Energy"""
+        tab = QWidget()
+        layout = QGridLayout(tab)
+        
+        # Phase space plots
+        self.plot_phase1 = pg.PlotWidget(title="Phase Space: θ1 vs ω1")
+        self.plot_phase1.setLabel('left', 'ω1', units='rad/s')
+        self.plot_phase1.setLabel('bottom', 'θ1', units='rad')
+        self.curve_phase1 = self.plot_phase1.plot(pen='b')
+        
+        self.plot_phase2 = pg.PlotWidget(title="Phase Space: θ2 vs ω2")
+        self.plot_phase2.setLabel('left', 'ω2', units='rad/s')
+        self.plot_phase2.setLabel('bottom', 'θ2', units='rad')
+        self.curve_phase2 = self.plot_phase2.plot(pen='r')
+        
+        # Configuration space
+        self.plot_config = pg.PlotWidget(title="Configuration Space: θ1 vs θ2")
+        self.plot_config.setLabel('left', 'θ2', units='rad')
+        self.plot_config.setLabel('bottom', 'θ1', units='rad')
+        self.curve_config = self.plot_config.plot(pen='m')
+        
+        # Energy plot
+        self.plot_energy = pg.PlotWidget(title="Energy vs Time")
+        self.plot_energy.setLabel('left', 'Energy', units='J')
+        self.plot_energy.setLabel('bottom', 'Time', units='s')
+        self.plot_energy.addLegend()
+        
+        layout.addWidget(self.plot_phase1, 0, 0)
+        layout.addWidget(self.plot_phase2, 0, 1)
+        layout.addWidget(self.plot_config, 1, 0)
+        layout.addWidget(self.plot_energy, 1, 1)
+        
+        self.tabs.addTab(tab, "Analysis")
+        
+    def init_plots(self):
+        """Initialize plot data"""
+        self.time_data = []
+        self.E_kin_data = []
+        self.E_pot_data = []
+        self.E_tot_data = []
+        
+    def update_parameters(self):
+        """Update simulation parameters from sliders"""
+        L1 = self.L1_slider.value() / 100.0
+        L2 = self.L2_slider.value() / 100.0
+        m1 = self.m1_slider.value() / 100.0
+        m2 = self.m2_slider.value() / 100.0
+        
+        self.L1_label.setText(f"{L1:.2f}")
+        self.L2_label.setText(f"{L2:.2f}")
+        self.m1_label.setText(f"{m1:.2f}")
+        self.m2_label.setText(f"{m2:.2f}")
+        
+        self.simulator.set_parameters(L1, L2, m1, m2)
+        self.canvas.L1, self.canvas.L2 = L1, L2
+        
+        # Aktualizuj počiatočnú pozíciu aj keď sa zmenia dĺžky
+        if not self.simulator.is_running:
+            self.update_initial_angles()
+    
+    def update_initial_angles(self):
+        """Update initial angles from sliders (len keď simulácia nebeží)"""
+        if not self.simulator.is_running:
+            theta1 = self.theta1_slider.value()
+            theta2 = self.theta2_slider.value()
+            
+            self.theta1_label.setText(str(theta1))
+            self.theta2_label.setText(str(theta2))
+            
+            # Aktualizuj canvas
+            self.canvas.set_initial_position(theta1, theta2)
+        
+    def start_simulation(self):
+        """Start the simulation"""
+        theta1 = self.theta1_slider.value() * np.pi / 180
+        theta2 = self.theta2_slider.value() * np.pi / 180
+        
+        self.simulator.reset(theta1, theta2)
+        self.canvas.trail.clear()
+        self.init_plots()
+        
+        self.simulator.start()
+        
+        self.start_btn.setEnabled(False)
+        self.stop_btn.setEnabled(True)
+        self.theta1_slider.setEnabled(False)
+        self.theta2_slider.setEnabled(False)
+        
+    def stop_simulation(self):
+        """Stop the simulation"""
+        self.simulator.stop()
+        
+        self.start_btn.setEnabled(True)
+        self.stop_btn.setEnabled(False)
+        self.theta1_slider.setEnabled(True)
+        self.theta2_slider.setEnabled(True)
+        
+    def reset_simulation(self):
+        """Reset simulation to initial state"""
+        self.simulator.stop()
+        self.canvas.trail.clear()
+        self.init_plots()
+        
+        # Clear all plots
+        self.curve_theta1.setData([], [])
+        self.curve_theta2.setData([], [])
+        self.curve_omega1.setData([], [])
+        self.curve_omega2.setData([], [])
+        self.curve_phase1.setData([], [])
+        self.curve_phase2.setData([], [])
+        self.curve_config.setData([], [])
+        self.plot_energy.clear()
+        
+        self.start_btn.setEnabled(True)
+        self.stop_btn.setEnabled(False)
+        self.theta1_slider.setEnabled(True)
+        self.theta2_slider.setEnabled(True)
+        
+    def toggle_pendulum(self, state):
+        """Toggle pendulum visibility"""
+        self.canvas.show_pendulum = state == Qt.CheckState.Checked.value
+        self.canvas.update()
+        
+    def toggle_trail(self, state):
+        """Toggle trail visibility"""
+        self.canvas.show_trail = state == Qt.CheckState.Checked.value
+        if not self.canvas.show_trail:
+            self.canvas.trail.clear()
+        self.canvas.update()
+        
+    def update_visualization(self, data):
+        """Update all visualizations with new data"""
+        # Update canvas
+        self.canvas.update_state(data['x1'], data['y1'], data['x2'], data['y2'])
+        
+        # Update status
+        self.time_label.setText(f"Time: {data['time']:.2f} s")
+        self.energy_label.setText(f"Energy: {data['E_total']:.2f} J")
+        
+        # Update time graphs (only when on that tab for performance)
+        if self.tabs.currentIndex() == 1:
+            history = self.simulator.get_history()
+            self.curve_theta1.setData(history['time'], history['theta1'])
+            self.curve_theta2.setData(history['time'], history['theta2'])
+            self.curve_omega1.setData(history['time'], history['omega1'])
+            self.curve_omega2.setData(history['time'], history['omega2'])
+        
+        # Update phase diagrams
+        if self.tabs.currentIndex() == 2:
+            history = self.simulator.get_history(max_points=5000)
+            self.curve_phase1.setData(history['theta1'], history['omega1'])
+            self.curve_phase2.setData(history['theta2'], history['omega2'])
+            self.curve_config.setData(history['theta1'], history['theta2'])
+            
+            # Update energy plot
+            self.time_data.append(data['time'])
+            self.E_kin_data.append(data['E_kinetic'])
+            self.E_pot_data.append(data['E_potential'])
+            self.E_tot_data.append(data['E_total'])
+            
+            # Limit data points
+            if len(self.time_data) > 10000:
+                self.time_data = self.time_data[-10000:]
+                self.E_kin_data = self.E_kin_data[-10000:]
+                self.E_pot_data = self.E_pot_data[-10000:]
+                self.E_tot_data = self.E_tot_data[-10000:]
+            
+            self.plot_energy.clear()
+            self.plot_energy.plot(self.time_data, self.E_kin_data, pen='g', name='Kinetic')
+            self.plot_energy.plot(self.time_data, self.E_pot_data, pen='b', name='Potential')
+            self.plot_energy.plot(self.time_data, self.E_tot_data, pen='r', name='Total')
+
+
+def main():
+    app = QApplication(sys.argv)
+    
+    # Set application style
+    app.setStyle('Fusion')
+    
+    window = DoublePendulumApp()
+    window.show()
+    sys.exit(app.exec())
+
+
+if __name__ == '__main__':
+    main()
