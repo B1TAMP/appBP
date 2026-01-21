@@ -13,7 +13,8 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QObject
 from PyQt6.QtGui import QPainter, QPen, QColor, QBrush
 import pyqtgraph as pg
-
+from PyQt6.QtGui import QDoubleValidator
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QObject, QLocale
 
 class PendulumSimulator(QObject):
     """Physics simulation running in separate thread"""
@@ -239,7 +240,7 @@ class PendulumCanvas(QWidget):
         
         # Draw trail
         if self.show_trail and len(self.trail) > 1:
-            # Zmeň farbu trailu tu! (R, G, B)
+            # trail Color and width
             painter.setPen(QPen(QColor(255, 255, 255), 1))  #farba a sirka 1
             for i in range(1, len(self.trail)):
                 x1_px = center_x + self.trail[i-1][0] * scale
@@ -257,18 +258,21 @@ class PendulumCanvas(QWidget):
             bob2_y = center_y + self.y2 * scale
             
             # Draw rods
-            painter.setPen(QPen(QColor(0, 50, 180), 3))
+            # Rod color and width
+            painter.setPen(QPen(QColor(51, 0, 51), 5))
             painter.drawLine(int(pivot_x), int(pivot_y), int(bob1_x), int(bob1_y))
             
-            painter.setPen(QPen(QColor(200, 0, 0), 3))
+            painter.setPen(QPen(QColor(51, 0, 51), 5))
             painter.drawLine(int(bob1_x), int(bob1_y), int(bob2_x), int(bob2_y))
             
+            #
             # Draw bobs
-            painter.setBrush(QBrush(QColor(0, 80, 255)))
+            #
+            painter.setBrush(QBrush(QColor(51, 0, 51)))
             painter.setPen(Qt.PenStyle.NoPen)
             painter.drawEllipse(int(bob1_x - 10), int(bob1_y - 10), 20, 20)
             
-            painter.setBrush(QBrush(QColor(255, 50, 0)))
+            painter.setBrush(QBrush(QColor(51, 0, 51)))
             painter.drawEllipse(int(bob2_x - 10), int(bob2_y - 10), 20, 20)
             
             # Draw pivot
@@ -301,7 +305,7 @@ class DoublePendulumApp(QMainWindow):
         
         # Main layout
         main_layout = QVBoxLayout(central_widget)
-        
+
         # Tab widget
         self.tabs = QTabWidget()
         main_layout.addWidget(self.tabs)
@@ -324,7 +328,19 @@ class DoublePendulumApp(QMainWindow):
         # Parameters group
         params_group = QGroupBox("Parameters")
         params_layout = QGridLayout()
-        
+        # Time slider
+        params_layout.addWidget(QLabel("Simulation Time (s):"), 6, 0)
+        self.time_limit_slider = QLineEdit("0.0")
+        self.time_limit_slider.setFixedWidth(50)
+
+        validator_time = QDoubleValidator(0.0, 3600.0, 1)
+        validator_time.setLocale(QLocale(QLocale.Language.English, QLocale.Country.UnitedStates))
+        self.time_limit_slider.setValidator(validator_time)
+
+        params_layout.addWidget(self.time_limit_slider, 6, 2)
+
+
+
         # Length sliders
         params_layout.addWidget(QLabel("L1 (m):"), 0, 0)
         self.L1_slider = QSlider(Qt.Orientation.Horizontal)
@@ -387,6 +403,7 @@ class DoublePendulumApp(QMainWindow):
         
         # Control buttons
         btn_layout = QVBoxLayout()
+        
         self.start_btn = QPushButton("Start Simulation")
         self.start_btn.clicked.connect(self.start_simulation)
         btn_layout.addWidget(self.start_btn)
@@ -400,8 +417,58 @@ class DoublePendulumApp(QMainWindow):
         self.reset_btn.clicked.connect(self.reset_simulation)
         btn_layout.addWidget(self.reset_btn)
         
+        self.default_btn = QPushButton("Default Settings")
+        self.default_btn.clicked.connect(self.set_default_parameters)
+        btn_layout.addWidget(self.default_btn)
         control_layout.addLayout(btn_layout)
+        # Setup validator for edit field (min, max, decimals)
+        #Validator for L and m edit fields
+        validator_L = QDoubleValidator(0.1, 5.0, 2)
+        validator_L.setLocale(QLocale(QLocale.Language.English, QLocale.Country.UnitedStates))
+        validator_L.setNotation(QDoubleValidator.Notation.StandardNotation)
+
+        validator_m = QDoubleValidator(0.1, 20, 2)
+        validator_m.setLocale(QLocale(QLocale.Language.English, QLocale.Country.UnitedStates))
+        validator_m.setNotation(QDoubleValidator.Notation.StandardNotation)
+
+        """EDIT Fields"""
+
+        # Edit field for L1
+        self.L1_edit_field = QLineEdit("2.0")
+        self.L1_edit_field.setFixedWidth(50)
+
         
+        self.L1_edit_field.setValidator(validator_L)
+        params_layout.addWidget(self.L1_edit_field, 0, 2)
+        
+        
+        # Edit field for L2
+        self.L2_edit_field = QLineEdit("2.0")
+        self.L2_edit_field.setFixedWidth(50)
+
+        self.L2_edit_field.setValidator(validator_L)
+        params_layout.addWidget(self.L2_edit_field, 1, 2)
+       
+        
+        #edit field for m1
+        self.m1_edit_field = QLineEdit("1.0")
+        self.m1_edit_field.setFixedWidth(50)
+        self.m1_edit_field.setValidator(validator_m)
+        params_layout.addWidget(self.m1_edit_field, 2, 2)       
+        
+        
+        #edit field for m2
+        self.m2_edit_field = QLineEdit("1.0")
+        self.m2_edit_field.setFixedWidth(50)
+        self.m2_edit_field.setValidator(validator_m)
+        params_layout.addWidget(self.m2_edit_field, 3, 2)   
+
+       
+        self.L1_edit_field.returnPressed.connect(self.update_params_from_edit)
+        self.L2_edit_field.returnPressed.connect(self.update_params_from_edit)
+        self.m1_edit_field.returnPressed.connect(self.update_params_from_edit)
+        self.m2_edit_field.returnPressed.connect(self.update_params_from_edit) 
+
         # Display options
         display_group = QGroupBox("Display")
         display_layout = QVBoxLayout()
@@ -414,6 +481,11 @@ class DoublePendulumApp(QMainWindow):
         self.show_trail_cb.setChecked(True)
         self.show_trail_cb.stateChanged.connect(self.toggle_trail)
         display_layout.addWidget(self.show_trail_cb)
+        # Graphs checkbox 
+        self.update_graphs_cb = QCheckBox("Allow Graphs")
+        self.update_graphs_cb.setChecked(True)
+        self.update_graphs_cb.stateChanged.connect(self.clear_all_graph_data)
+        display_layout.addWidget(self.update_graphs_cb)
         
         display_group.setLayout(display_layout)
         control_layout.addWidget(display_group)
@@ -521,7 +593,12 @@ class DoublePendulumApp(QMainWindow):
         m1 = self.m1_slider.value() / 100.0
         m2 = self.m2_slider.value() / 100.0
         
-        self.L1_label.setText(f"{L1:.2f}")
+        self.L1_edit_field.setText(f"{L1:.2f}")
+        self.L2_edit_field.setText(f"{L2:.2f}")
+        self.m1_edit_field.setText(f"{m1:.2f}")
+        self.m2_edit_field.setText(f"{m2:.2f}")
+
+        self.L1_edit_field.setText(f"{L1:.2f}")
         self.L2_label.setText(f"{L2:.2f}")
         self.m1_label.setText(f"{m1:.2f}")
         self.m2_label.setText(f"{m2:.2f}")
@@ -546,36 +623,46 @@ class DoublePendulumApp(QMainWindow):
             self.canvas.set_initial_position(theta1, theta2)
         
     def start_simulation(self):
-        """Start the simulation"""
-        theta1 = self.theta1_slider.value() * np.pi / 180
-        theta2 = self.theta2_slider.value() * np.pi / 180
-        
-        self.simulator.reset(theta1, theta2)
-        self.canvas.trail.clear()
-        self.init_plots()
-        
+       
         self.simulator.start()
         
         self.start_btn.setEnabled(False)
         self.stop_btn.setEnabled(True)
         self.theta1_slider.setEnabled(False)
         self.theta2_slider.setEnabled(False)
+        self.default_btn.setEnabled(False)
+        self.time_limit_slider.setEnabled(False)
         
     def stop_simulation(self):
-        """Stop the simulation"""
+        # stop sim bttn
         self.simulator.stop()
         
         self.start_btn.setEnabled(True)
         self.stop_btn.setEnabled(False)
         self.theta1_slider.setEnabled(True)
         self.theta2_slider.setEnabled(True)
+        self.default_btn.setEnabled(True)
+        self.time_limit_slider.setEnabled(True)
         
     def reset_simulation(self):
-        """Reset simulation to initial state"""
+        # reset sim bttn ---> resets simulation and clears plots
+
+
         self.simulator.stop()
         self.canvas.trail.clear()
+        self.default_btn.setEnabled(True)
         self.init_plots()
-        
+        # reset time EK EP E 
+        self.time_data = []
+        self.E_kin_data = []
+        self.E_pot_data = []
+        self.E_tot_data = []        
+
+        theta1 = self.theta1_slider.value()*np.pi /180
+        theta2 = self.theta2_slider.value()*np.pi /180
+
+        self.simulator.reset(theta1,theta2)
+        self.canvas.set_initial_position(self.theta1_slider.value(), self.theta2_slider.value())
         # Clear all plots
         self.curve_theta1.setData([], [])
         self.curve_theta2.setData([], [])
@@ -605,15 +692,34 @@ class DoublePendulumApp(QMainWindow):
         
     def update_visualization(self, data):
         """Update all visualizations with new data"""
+        current_time = data['time']
+        
+       # Try block for checking time limit
+        try:
+            limit_text = self.time_limit_slider.text().replace(',', '.')
+            limit = float(limit_text)
+ 
+            if limit > 0 and current_time >= limit:
+                self.stop_simulation() 
+                
+                self.time_label.setText(f"Time: {limit:.2f} s (Limit reached)")
+                return 
+        except ValueError:
+            pass 
+
         # Update canvas
         self.canvas.update_state(data['x1'], data['y1'], data['x2'], data['y2'])
-        
         # Update status
         self.time_label.setText(f"Time: {data['time']:.2f} s")
         self.energy_label.setText(f"Energy: {data['E_total']:.2f} J")
         
-        # Update time graphs (only when on that tab for performance)
-        if self.tabs.currentIndex() == 1:
+        allow_plotting = self.update_graphs_cb.isChecked()
+        if not allow_plotting:
+            self.clear_all_graph_data()
+            return
+
+
+        if self.tabs.currentIndex() == 1 :
             history = self.simulator.get_history()
             self.curve_theta1.setData(history['time'], history['theta1'])
             self.curve_theta2.setData(history['time'], history['theta2'])
@@ -621,7 +727,7 @@ class DoublePendulumApp(QMainWindow):
             self.curve_omega2.setData(history['time'], history['omega2'])
         
         # Update phase diagrams
-        if self.tabs.currentIndex() == 2:
+        if self.tabs.currentIndex() == 2 :
             history = self.simulator.get_history(max_points=5000)
             self.curve_phase1.setData(history['theta1'], history['omega1'])
             self.curve_phase2.setData(history['theta2'], history['omega2'])
@@ -644,6 +750,50 @@ class DoublePendulumApp(QMainWindow):
             self.plot_energy.plot(self.time_data, self.E_kin_data, pen='g', name='Kinetic')
             self.plot_energy.plot(self.time_data, self.E_pot_data, pen='b', name='Potential')
             self.plot_energy.plot(self.time_data, self.E_tot_data, pen='r', name='Total')
+
+    def set_default_parameters(self):
+        # set default values for pendulum simulation
+        self.L1_slider.setValue(50)
+        self.L2_slider.setValue(50)
+        self.m1_slider.setValue(50)
+        self.m2_slider.setValue(50)
+        self.update_initial_angles()
+
+    def clear_all_graph_data(self):
+       
+        self.curve_theta1.setData([], [])
+        self.curve_theta2.setData([], [])
+        self.curve_omega1.setData([], [])
+        self.curve_omega2.setData([], [])
+        self.curve_phase1.setData([], [])
+        self.curve_phase2.setData([], [])
+        self.curve_config.setData([], [])
+        self.plot_energy.clear()
+
+    def update_params_from_edit(self):
+            
+        sender = self.sender()  #
+        try:
+            # text to float
+            val = float(sender.text().replace(',', '.'))
+            
+            # edit field slct
+            if sender == self.L1_edit_field:
+                self.L1_slider.setValue(int(val * 100))
+            elif sender == self.L2_edit_field:
+                self.L2_slider.setValue(int(val * 100))
+            elif sender == self.m1_edit_field:
+                self.m1_slider.setValue(int(val * 100))
+            elif sender == self.m2_edit_field:
+                self.m2_slider.setValue(int(val * 100))
+                
+           
+            self.update_parameters()
+            
+        except ValueError:
+           
+            self.update_parameters()
+  
 
 
 def main():
