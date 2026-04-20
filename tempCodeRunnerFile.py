@@ -1,0 +1,1 @@
+ # 1. Získame text a nahradíme prípadnú čiarku bodkou

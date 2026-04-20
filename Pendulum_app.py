@@ -8,13 +8,50 @@ import sys
 import numpy as np
 from collections import deque
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
-                             QHBoxLayout, QTabWidget, QLabel, QSlider, QPushButton,
-                             QLineEdit, QCheckBox, QGridLayout, QGroupBox)
+                             QHBoxLayout, QTabWidget, QLabel, QSlider, QPushButton,     
+                             QLineEdit, QCheckBox, QGridLayout, QGroupBox,QComboBox)
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QObject
 from PyQt6.QtGui import QPainter, QPen, QColor, QBrush
 import pyqtgraph as pg
 from PyQt6.QtGui import QDoubleValidator
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QObject, QLocale
+from PyQt6.QtGui import QPainter, QPen, QColor, QBrush, QRadialGradient
+import serial
+import serial.tools.list_ports
+from PyQt6.QtCore import QThread
+import time
+
+
+class SerialReader(QThread):
+    raw_data_received = pyqtSignal(float, float) # theta1, theta2
+
+    def __init__(self, port, baudrate=115200):
+        super().__init__()
+        self.port = port
+        self.baudrate = baudrate
+        self.running = False
+
+    def run(self):
+        try:
+          with serial.Serial(self.port, self.baudrate, timeout=0.1) as ser:
+            self.running = True
+            while self.running:
+                line = ser.readline().decode('utf-8').strip()
+                if line:
+                    try:
+                        # Očakávame formát: "uhol1,uhol2"
+                        t1, t2 = map(float, line.split(','))
+                        self.raw_data_received.emit(t1, t2)
+                    except ValueError:
+                        continue
+            
+        except Exception as e:
+            print(f"Serial Error: {e}")
+
+    def stop(self):
+        self.running = False
+        self.wait()
+      
 
 class PendulumSimulator(QObject):
     """Physics simulation running in separate thread"""
@@ -31,7 +68,7 @@ class PendulumSimulator(QObject):
         self.m2 = 1.0
         self.g = 9.81
         self.dt = 0.001  # 1ms timestep
-        
+        self.damping = 0.01 
         # State vector [theta1, theta2, omega1, omega2]
         self.state = np.array([120 * np.pi / 180, -100 * np.pi / 180, 0.0, 0.0])
         self.time = 0.0
@@ -51,6 +88,9 @@ class PendulumSimulator(QObject):
         # Timer for simulation
         self.timer = QTimer()
         self.timer.timeout.connect(self.step)
+
+        # comunication with serial thread
+        self.serial_thread = None
         
     def start(self):
         """Start simulation"""
@@ -68,12 +108,13 @@ class PendulumSimulator(QObject):
         self.time = 0.0
         self.buffer_index = 0
         
-    def set_parameters(self, L1, L2, m1, m2):
+    def set_parameters(self, L1, L2, m1, m2, damping):
         """Update pendulum parameters"""
         self.L1 = L1
         self.L2 = L2
         self.m1 = m1
         self.m2 = m2
+        self.damping = damping
         
     def pendulum_derivatives(self, state):
         """Calculate derivatives for double pendulum equations"""
@@ -94,6 +135,9 @@ class PendulumSimulator(QObject):
         dw2 = (-self.m2 * self.L2 * w2**2 * np.sin(delta) * np.cos(delta) +
                (self.m1 + self.m2) * (self.g * np.sin(th1) * np.cos(delta) -
                self.L1 * w1**2 * np.sin(delta) - self.g * np.sin(th2))) / den2
+        
+        dw1 -= self.damping * w1
+        dw2 -= self.damping * w2
         
         return np.array([dth1, dth2, dw1, dw2])
     
@@ -193,7 +237,7 @@ class PendulumCanvas(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setMinimumSize(600, 600)
-        
+        self.show_rods = True
         # Pendulum state
         self.x1, self.y1 = 0, 0
         self.x2, self.y2 = 0, 0
@@ -206,6 +250,8 @@ class PendulumCanvas(QWidget):
         
         # Inicializuj počiatočnú pozíciu (120°, -10°)
         self.set_initial_position(120, -100)
+
+        self.esp_coords = None
         
     def set_initial_position(self, theta1_deg, theta2_deg):
         """Set initial pendulum position (in degrees)"""
@@ -227,58 +273,89 @@ class PendulumCanvas(QWidget):
         if self.show_trail:
             self.trail.append((x2, y2))
         self.update()
-        
+    def update_esp_state(self, x1, y1, x2, y2):
+        self.esp_coords = (x1, y1, x2, y2)
+        self.update()
+
     def paintEvent(self, event):
-        """Draw pendulum"""
+        """Vykreslenie kyvadla s 3D efektom (tiene a gradienty)"""
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         
-        # Setup coordinate system
+        # settup 
         w, h = self.width(), self.height()
         center_x, center_y = w / 2, h / 2
         scale = min(w, h) / (2.6 * (self.L1 + self.L2))
         
-        # Draw trail
+        
+        pivot_x, pivot_y = center_x, center_y
+        bob1_x = center_x + self.x1 * scale
+        bob1_y = center_y + self.y1 * scale
+        bob2_x = center_x + self.x2 * scale
+        bob2_y = center_y + self.y2 * scale
+        if self.show_pendulum:
+            # shadow effect renderring
+            shadow_offset = 5
+            painter.setOpacity(0.2) # Priehľadnosť pre tieň
+            painter.setPen(QPen(Qt.GlobalColor.black, 5))
+
+            if self.show_rods:
+                painter.drawLine(int(pivot_x + shadow_offset), int(pivot_y + shadow_offset), 
+                                int(bob1_x + shadow_offset), int(bob1_y + shadow_offset))
+                painter.drawLine(int(bob1_x + shadow_offset), int(bob1_y + shadow_offset), 
+                                int(bob2_x + shadow_offset), int(bob2_y + shadow_offset))
+            painter.setOpacity(1.0) 
+
+                # 3d render for rods
+            if self.show_rods:
+                painter.setPen(QPen(QColor(51, 0, 51), 5))
+                painter.drawLine(int(pivot_x), int(pivot_y), int(bob1_x), int(bob1_y))
+                painter.drawLine(int(bob1_x), int(bob1_y), int(bob2_x), int(bob2_y))
+
+             # 3d render for bobs
+            for bx, by in [(bob1_x, bob1_y), (bob2_x, bob2_y)]:
+            # Vytvorenie odlesku: stred je mierne vľavo hore (-5, -5)
+                grad = QRadialGradient(bx - 4, by - 4, 12)
+                grad.setColorAt(0, QColor(100, 40, 100)) # Svetlý bod (odlesk)
+                grad.setColorAt(0.8, QColor(51, 0, 51))  # Základná farba
+                grad.setColorAt(1, QColor(20, 0, 20))    # Tmavý okraj (tieň na guli)
+                
+                painter.setBrush(QBrush(grad))
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.drawEllipse(int(bx - 12), int(by - 12), 24, 24)
+            
+                # sted
+            painter.setBrush(QBrush(QColor(150, 150, 150)))
+            painter.drawEllipse(int(pivot_x - 6), int(pivot_y - 6), 12, 12)
+        if self.esp_coords:
+            ex1, ey1, ex2, ey2 = self.esp_coords
+            
+            # Nastavenie štýlu: Zelená prerušovaná čiara pre ESP
+            esp_pen = QPen(QColor(0, 255, 0, 180), 3, Qt.PenStyle.DashLine)
+            painter.setPen(esp_pen)
+            
+            # Súradnice pre ESP body
+            eb1x, eb1y = center_x + ex1 * scale, center_y + ey1 * scale
+            eb2x, eb2y = center_x + ex2 * scale, center_y + ey2 * scale
+            
+            # Kreslenie tyčí ESP kyvadla
+            painter.drawLine(int(pivot_x), int(pivot_y), int(eb1x), int(eb1y))
+            painter.drawLine(int(eb1x), int(eb1y), int(eb2x), int(eb2y))
+            
+            # Kreslenie kĺbov ESP kyvadla (menšie zelené krúžky)
+            painter.setBrush(QBrush(QColor(0, 255, 0, 150)))
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.drawEllipse(int(eb1x - 6), int(eb1y - 6), 12, 12)
+            painter.drawEllipse(int(eb2x - 6), int(eb2y - 6), 12, 12)
+        # 3d render for tail
         if self.show_trail and len(self.trail) > 1:
-            # trail Color and width
-            painter.setPen(QPen(QColor(255, 255, 255), 1))  #farba a sirka 1
+            painter.setPen(QPen(QColor(255, 255, 255, 150), 1))
             for i in range(1, len(self.trail)):
                 x1_px = center_x + self.trail[i-1][0] * scale
                 y1_px = center_y + self.trail[i-1][1] * scale
                 x2_px = center_x + self.trail[i][0] * scale
                 y2_px = center_y + self.trail[i][1] * scale
                 painter.drawLine(int(x1_px), int(y1_px), int(x2_px), int(y2_px))
-        
-        if self.show_pendulum:
-            # Convert to pixel coordinates
-            pivot_x, pivot_y = center_x, center_y
-            bob1_x = center_x + self.x1 * scale
-            bob1_y = center_y + self.y1 * scale
-            bob2_x = center_x + self.x2 * scale
-            bob2_y = center_y + self.y2 * scale
-            
-            # Draw rods
-            # Rod color and width
-            painter.setPen(QPen(QColor(51, 0, 51), 5))
-            painter.drawLine(int(pivot_x), int(pivot_y), int(bob1_x), int(bob1_y))
-            
-            painter.setPen(QPen(QColor(51, 0, 51), 5))
-            painter.drawLine(int(bob1_x), int(bob1_y), int(bob2_x), int(bob2_y))
-            
-            #
-            # Draw bobs
-            #
-            painter.setBrush(QBrush(QColor(51, 0, 51)))
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.drawEllipse(int(bob1_x - 10), int(bob1_y - 10), 20, 20)
-            
-            painter.setBrush(QBrush(QColor(51, 0, 51)))
-            painter.drawEllipse(int(bob2_x - 10), int(bob2_y - 10), 20, 20)
-            
-            # Draw pivot
-            painter.setBrush(QBrush(QColor(100, 100, 100)))
-            painter.drawEllipse(int(pivot_x - 5), int(pivot_y - 5), 10, 10)
-
 
 class DoublePendulumApp(QMainWindow):
     """Main application window"""
@@ -292,11 +369,14 @@ class DoublePendulumApp(QMainWindow):
         self.simulator = PendulumSimulator()
         self.simulator.data_ready.connect(self.update_visualization)
         
+        self.serial_thread = None
+        
         # Setup UI
         self.setup_ui()
         
         # Initialize plots
         self.init_plots()
+        
         
     def setup_ui(self):
         """Create user interface"""
@@ -314,6 +394,7 @@ class DoublePendulumApp(QMainWindow):
         self.create_simulation_tab()
         self.create_graphs_tab()
         self.create_analysis_tab()
+        self.create_esp32_tab()
         
     def create_simulation_tab(self):
         """Tab 1: Simulation and Control"""
@@ -379,6 +460,7 @@ class DoublePendulumApp(QMainWindow):
         self.m2_label = QLabel("1.0")
         params_layout.addWidget(self.m2_label, 3, 2)
         
+        
         # Angle sliders
         params_layout.addWidget(QLabel("θ1 (°):"), 4, 0)
         self.theta1_slider = QSlider(Qt.Orientation.Horizontal)
@@ -401,6 +483,16 @@ class DoublePendulumApp(QMainWindow):
         params_group.setLayout(params_layout)
         control_layout.addWidget(params_group)
         
+
+        params_layout.addWidget(QLabel("Damping (c):"), 7, 0)
+        self.damping_slider = QSlider(Qt.Orientation.Horizontal)
+        self.damping_slider.setRange(0, 200)
+        self.damping_slider.setValue(2)
+        self.damping_slider.valueChanged.connect(self.update_parameters)
+        params_layout.addWidget(self.damping_slider, 7, 1)
+
+        self.damping_label = QLabel("0.02")
+        params_layout.addWidget(self.damping_label, 7, 2)
         # Control buttons
         btn_layout = QVBoxLayout()
         
@@ -471,23 +563,32 @@ class DoublePendulumApp(QMainWindow):
 
         # Display options
         display_group = QGroupBox("Display")
-        display_layout = QVBoxLayout()
+        display_main_layout = QVBoxLayout()
+        checkbox_row_layout = QHBoxLayout()
+
         self.show_pendulum_cb = QCheckBox("Show Pendulum")
         self.show_pendulum_cb.setChecked(True)
         self.show_pendulum_cb.stateChanged.connect(self.toggle_pendulum)
-        display_layout.addWidget(self.show_pendulum_cb)
+        checkbox_row_layout.addWidget(self.show_pendulum_cb)
         
         self.show_trail_cb = QCheckBox("Show Trail")
         self.show_trail_cb.setChecked(True)
         self.show_trail_cb.stateChanged.connect(self.toggle_trail)
-        display_layout.addWidget(self.show_trail_cb)
+        checkbox_row_layout.addWidget(self.show_trail_cb)
         # Graphs checkbox 
         self.update_graphs_cb = QCheckBox("Allow Graphs")
         self.update_graphs_cb.setChecked(True)
         self.update_graphs_cb.stateChanged.connect(self.clear_all_graph_data)
-        display_layout.addWidget(self.update_graphs_cb)
+        checkbox_row_layout.addWidget(self.update_graphs_cb)
         
-        display_group.setLayout(display_layout)
+        self.show_rods_cb = QCheckBox("Show Rods")
+        self.show_rods_cb.setChecked(True)
+        self.show_rods_cb.stateChanged.connect(self.toggle_rods)
+        checkbox_row_layout.addWidget(self.show_rods_cb)
+
+        
+        display_main_layout.addLayout(checkbox_row_layout)
+        display_group.setLayout(display_main_layout)
         control_layout.addWidget(display_group)
         
         # Status display
@@ -512,30 +613,38 @@ class DoublePendulumApp(QMainWindow):
         self.tabs.addTab(tab, "Simulation")
         
     def create_graphs_tab(self):
-        """Tab 2: Time Graphs"""
+       
         tab = QWidget()
         layout = QGridLayout(tab)
         
-        # Create plots
+        # θ1 Plot
         self.plot_theta1 = pg.PlotWidget(title="θ1 vs Time")
+        self.plot_theta1.setBackground('w')
         self.plot_theta1.setLabel('left', 'θ1', units='rad')
         self.plot_theta1.setLabel('bottom', 'Time', units='s')
-        self.curve_theta1 = self.plot_theta1.plot(pen='b')
+        # Vytvorenie krivky s hrúbkou 3
+        self.curve_theta1 = self.plot_theta1.plot(pen=pg.mkPen('b', width=3))
         
+        # θ2 Plot
         self.plot_theta2 = pg.PlotWidget(title="θ2 vs Time")
+        self.plot_theta2.setBackground('w')
         self.plot_theta2.setLabel('left', 'θ2', units='rad')
         self.plot_theta2.setLabel('bottom', 'Time', units='s')
-        self.curve_theta2 = self.plot_theta2.plot(pen='r')
+        self.curve_theta2 = self.plot_theta2.plot(pen=pg.mkPen('r', width=3))
         
+        # ω1 Plot
         self.plot_omega1 = pg.PlotWidget(title="ω1 vs Time")
+        self.plot_omega1.setBackground('w')
         self.plot_omega1.setLabel('left', 'ω1', units='rad/s')
         self.plot_omega1.setLabel('bottom', 'Time', units='s')
-        self.curve_omega1 = self.plot_omega1.plot(pen='g')
+        self.curve_omega1 = self.plot_omega1.plot(pen=pg.mkPen('g', width=3))
         
+        # ω2 Plot
         self.plot_omega2 = pg.PlotWidget(title="ω2 vs Time")
+        self.plot_omega2.setBackground('w')
         self.plot_omega2.setLabel('left', 'ω2', units='rad/s')
         self.plot_omega2.setLabel('bottom', 'Time', units='s')
-        self.curve_omega2 = self.plot_omega2.plot(pen='m')
+        self.curve_omega2 = self.plot_omega2.plot(pen=pg.mkPen('m', width=3))
         
         layout.addWidget(self.plot_theta1, 0, 0)
         layout.addWidget(self.plot_theta2, 0, 1)
@@ -545,32 +654,38 @@ class DoublePendulumApp(QMainWindow):
         self.tabs.addTab(tab, "Time Graphs")
         
     def create_analysis_tab(self):
+        
         """Tab 3: Phase Diagrams & Energy"""
         tab = QWidget()
         layout = QGridLayout(tab)
         
         # Phase space plots
         self.plot_phase1 = pg.PlotWidget(title="Phase Space: θ1 vs ω1")
+        self.plot_phase1.setBackground('w')
         self.plot_phase1.setLabel('left', 'ω1', units='rad/s')
         self.plot_phase1.setLabel('bottom', 'θ1', units='rad')
-        self.curve_phase1 = self.plot_phase1.plot(pen='b')
+        self.curve_phase1 = self.plot_phase1.plot(pen=pg.mkPen('b', width=3))
         
         self.plot_phase2 = pg.PlotWidget(title="Phase Space: θ2 vs ω2")
+        self.plot_phase2.setBackground('w')
         self.plot_phase2.setLabel('left', 'ω2', units='rad/s')
         self.plot_phase2.setLabel('bottom', 'θ2', units='rad')
-        self.curve_phase2 = self.plot_phase2.plot(pen='r')
+        self.curve_phase2 = self.plot_phase2.plot(pen=pg.mkPen('r', width=3))
         
         # Configuration space
         self.plot_config = pg.PlotWidget(title="Configuration Space: θ1 vs θ2")
+        self.plot_config.setBackground('w')
         self.plot_config.setLabel('left', 'θ2', units='rad')
         self.plot_config.setLabel('bottom', 'θ1', units='rad')
-        self.curve_config = self.plot_config.plot(pen='m')
+        self.curve_config = self.plot_config.plot(pen=pg.mkPen('m', width=3))
         
         # Energy plot
         self.plot_energy = pg.PlotWidget(title="Energy vs Time")
+        self.plot_energy.setBackground('w')
         self.plot_energy.setLabel('left', 'Energy', units='J')
         self.plot_energy.setLabel('bottom', 'Time', units='s')
         self.plot_energy.addLegend()
+        #self.plot_energy = self.plot_energy.plot(pen=pg.mkPen('m', width=3))
         
         layout.addWidget(self.plot_phase1, 0, 0)
         layout.addWidget(self.plot_phase2, 0, 1)
@@ -578,35 +693,39 @@ class DoublePendulumApp(QMainWindow):
         layout.addWidget(self.plot_energy, 1, 1)
         
         self.tabs.addTab(tab, "Analysis")
-        
     def init_plots(self):
         """Initialize plot data"""
         self.time_data = []
         self.E_kin_data = []
         self.E_pot_data = []
         self.E_tot_data = []
+
+        self.esp_time_data = []
+        self.esp_theta1_data = []
+        self.esp_theta2_data = []
+        self.esp_start_time = None
         
     def update_parameters(self):
-        """Update simulation parameters from sliders"""
+            
         L1 = self.L1_slider.value() / 100.0
         L2 = self.L2_slider.value() / 100.0
         m1 = self.m1_slider.value() / 100.0
         m2 = self.m2_slider.value() / 100.0
-        
+        # NOVÉ: Čítanie damping slidera
+        damping = self.damping_slider.value() / 100.0 
+
+        # Aktualizácia textových polí (ak ich používaš)
         self.L1_edit_field.setText(f"{L1:.2f}")
         self.L2_edit_field.setText(f"{L2:.2f}")
         self.m1_edit_field.setText(f"{m1:.2f}")
         self.m2_edit_field.setText(f"{m2:.2f}")
+        # Aktualizácia labelu pre damping
+        self.damping_label.setText(f"{damping:.2f}") 
 
-        self.L1_edit_field.setText(f"{L1:.2f}")
-        self.L2_label.setText(f"{L2:.2f}")
-        self.m1_label.setText(f"{m1:.2f}")
-        self.m2_label.setText(f"{m2:.2f}")
-        
-        self.simulator.set_parameters(L1, L2, m1, m2)
+        # Poslanie všetkých parametrov do simulátora (vrátane damping)
+        self.simulator.set_parameters(L1, L2, m1, m2, damping)
         self.canvas.L1, self.canvas.L2 = L1, L2
-        
-        # Aktualizuj počiatočnú pozíciu aj keď sa zmenia dĺžky
+
         if not self.simulator.is_running:
             self.update_initial_angles()
     
@@ -689,7 +808,11 @@ class DoublePendulumApp(QMainWindow):
         if not self.canvas.show_trail:
             self.canvas.trail.clear()
         self.canvas.update()
-        
+
+    def toggle_rods(self, state):
+        # rods visibility
+        self.canvas.show_rods = (state == 2 or state == Qt.CheckState.Checked.value)
+        self.canvas.update()
     def update_visualization(self, data):
         """Update all visualizations with new data"""
         current_time = data['time']
@@ -758,6 +881,8 @@ class DoublePendulumApp(QMainWindow):
         self.m1_slider.setValue(50)
         self.m2_slider.setValue(50)
         self.update_initial_angles()
+        self.damping_slider.setValue(2) 
+        self.update_parameters()
 
     def clear_all_graph_data(self):
        
@@ -793,9 +918,116 @@ class DoublePendulumApp(QMainWindow):
         except ValueError:
            
             self.update_parameters()
-  
 
+    def create_esp32_tab(self):
+        tab = QWidget()
+        main_layout = QVBoxLayout(tab)
+        
+        # --- Horný panel (Zmenšený) ---
+        connection_group = QGroupBox("Pripojenie ESP32-C3 Mini")
+        connection_group.setMaximumHeight(150) # Obmedzíme výšku panelu
+        g_layout = QGridLayout()
+        
+        self.port_selector = QComboBox()
+        self.refresh_ports()
+        
+        self.connect_btn = QPushButton("Pripojiť ESP32")
+        self.connect_btn.clicked.connect(self.toggle_esp_connection)
+        
+        g_layout.addWidget(QLabel("Port:"), 0, 0)
+        g_layout.addWidget(self.port_selector, 0, 1)
+        g_layout.addWidget(self.connect_btn, 1, 0, 1, 2)
+        
+        self.live_data_label = QLabel("Uhly z ESP32: θ1: 0°, θ2: 0°")
+        g_layout.addWidget(self.live_data_label, 2, 0, 1, 2)
+        
+        connection_group.setLayout(g_layout)
+        main_layout.addWidget(connection_group)
+        
+        # --- Grafy pre ESP32 Dáta ---
+        # Graf pre Theta 1
+        self.esp_plot1 = pg.PlotWidget(title="Live θ1 [rad]")
+        self.esp_plot1.setBackground('k')
+        self.esp_curve1 = self.esp_plot1.plot(pen='b') # Modrá čiara
+        main_layout.addWidget(self.esp_plot1)
+        
+        # Graf pre Theta 2
+        self.esp_plot2 = pg.PlotWidget(title="Live θ2 [rad]")
+        self.esp_plot2.setBackground('k')
+        self.esp_curve2 = self.esp_plot2.plot(pen='r') # Červená čiara
+        main_layout.addWidget(self.esp_plot2)
+        # checkbox for second pendulum fromesp32
+        self.show_esp_pendulum_cb = QCheckBox("Zobraziť ESP kyvadlo v simulácii")
+        self.show_esp_pendulum_cb.setChecked(False)
+        g_layout.addWidget(self.show_esp_pendulum_cb, 3, 0, 1, 2)
 
+        self.tabs.addTab(tab, "ESP32 Dáta")
+    def refresh_ports(self):
+        
+        self.port_selector.clear()
+        ports = [p.device for p in serial.tools.list_ports.comports()]
+        self.port_selector.addItems(ports)
+
+    def toggle_esp_connection(self):
+        # Skontrolujeme, či vlákno fyzicky existuje A či beží
+        if self.serial_thread is not None and self.serial_thread.isRunning():
+            # ODPOJENIE
+            self.serial_thread.stop()
+            self.serial_thread = None # Dôležité: vrátime na None po zastavení
+            
+            self.connect_btn.setText("Pripojiť ESP32")
+            self.connect_btn.setStyleSheet("")
+            
+            # Skryjeme ESP kyvadlo pri odpojení
+            self.canvas.esp_coords = None
+            self.canvas.update()
+            print("ESP32 odpojené.")
+            return
+
+        # PRIPOJENIE (vlákno neexistuje alebo nebeží)
+        port = self.port_selector.currentText()
+        if port:
+            # Inicializácia dát
+            self.esp_time_data = []
+            self.esp_theta1_data = []
+            self.esp_theta2_data = []
+            self.esp_start_time = time.time()
+            
+            # Vytvorenie a spustenie vlákna
+            self.serial_thread = SerialReader(port)
+            self.serial_thread.raw_data_received.connect(self.process_esp_data)
+            self.serial_thread.start()
+            
+            self.connect_btn.setText("Odpojiť ESP32")
+            self.connect_btn.setStyleSheet("background-color: #ff4c4c; color: white;")
+            print(f"Pripájanie k {port}...")
+    def process_esp_data(self, t1, t2):
+       
+       if self.esp_start_time is None:
+            self.esp_start_time = time.time()
+       
+       current_time = time.time() - self.esp_start_time
+
+       r1, r2 = np.radians(t1), np.radians(t2)
+       self.esp_time_data.append(current_time)
+       self.esp_theta1_data.append(r1)
+       self.esp_theta2_data.append(r2)
+
+        # Aktualizácia grafov na Tab 2 (ESP dáta)
+       self.esp_curve1.setData(self.esp_time_data, self.esp_theta1_data)
+       self.esp_curve2.setData(self.esp_time_data, self.esp_theta2_data)
+
+       if self.show_esp_pendulum_cb.isChecked():
+            x1 = self.simulator.L1 * np.sin(r1)
+            y1 = self.simulator.L1 * np.cos(r1)
+            x2 = x1 + self.simulator.L2 * np.sin(r2)
+            y2 = y1 + self.simulator.L2 * np.cos(r2)
+            
+            # Zavoláme novú metódu v canvase na Tab 1
+            self.canvas.update_esp_state(x1, y1, x2, y2)
+       else:
+            self.canvas.esp_coords = None # Skryť ESP kyvadlo
+            self.canvas.update()
 def main():
     app = QApplication(sys.argv)
     
