@@ -23,9 +23,9 @@ import time
 
 
 class SerialReader(QThread):
-    raw_data_received = pyqtSignal(float, float) # theta1, theta2
+    raw_data_received = pyqtSignal(float, float)
 
-    def __init__(self, port, baudrate=115200):
+    def __init__(self, port, baudrate=921600):
         super().__init__()
         self.port = port
         self.baudrate = baudrate
@@ -33,20 +33,22 @@ class SerialReader(QThread):
 
     def run(self):
         try:
-          with serial.Serial(self.port, self.baudrate, timeout=0.1) as ser:
-            self.running = True
-            while self.running:
-                line = ser.readline().decode('utf-8').strip()
-                if line:
-                    try:
-                        # Očakávame formát: "uhol1,uhol2"
-                        t1, t2 = map(float, line.split(','))
-                        self.raw_data_received.emit(t1, t2)
-                    except ValueError:
-                        continue
-            
+            with serial.Serial(self.port, self.baudrate, timeout=1) as ser:
+                time.sleep(2)
+                ser.flushInput()
+                self.running = True
+                while self.running:
+                    line = ser.readline().decode('utf-8', errors='ignore').strip()
+                    if line:
+                        try:
+                            t2, t1 = map(float, line.split(','))
+                            self.raw_data_received.emit(t1, t2)
+                        except ValueError:
+                            continue
         except Exception as e:
             print(f"Serial Error: {e}")
+
+   
 
     def stop(self):
         self.running = False
