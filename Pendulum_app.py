@@ -794,7 +794,9 @@ class DoublePendulumApp(QMainWindow):
         
     def start_simulation(self):
 
-
+        theta1 = self.theta1_slider.value() * np.pi / 180
+        theta2 = self.theta2_slider.value() * np.pi / 180
+        self.simulator.reset(theta1, theta2)
         # Reset ESP bufferu - obe krivky začnú od času 0
         self.esp_time_data = []
         self.esp_theta1_data = []
@@ -1091,81 +1093,81 @@ class DoublePendulumApp(QMainWindow):
             self.curve_esp_config.setData([], [])
 
     def toggle_esp_connection(self):
-        # Skontrolujeme, či vlákno fyzicky existuje A či beží
+        # ─── ODPOJENIE ───
         if self.serial_thread is not None and self.serial_thread.isRunning():
-            # ODPOJENIE
             self.serial_thread.stop()
-            self.serial_thread = None # Dôležité: vrátime na None po zastavení
-            
+            self.serial_thread = None
+
             self.connect_btn.setText("Pripojiť ESP32")
             self.connect_btn.setStyleSheet("")
 
             self.align_esp_btn.setEnabled(False)
+            self.calibrate_btn.setEnabled(False)
 
-            # Pri ODPOJENÍ
-            self.align_esp_btn.setEnabled(False)
-            self.calibrate_btn.setEnabled(False)  # NOVÉ
-
-            # Pri PRIPOJENÍ
-            self.align_esp_btn.setEnabled(True)
-            self.calibrate_btn.setEnabled(True)  # NOVÉ
-            # Skryjeme ESP kyvadlo pri odpojení
             self.canvas.esp_coords = None
             self.canvas.update()
             print("ESP32 odpojené.")
             return
 
-        # PRIPOJENIE (vlákno neexistuje alebo nebeží)
+        # ─── PRIPOJENIE ───
         port = self.port_selector.currentText()
-        if port:
-            # Inicializácia dát
-            self.esp_time_data = []
-            self.esp_theta1_data = []
-            self.esp_theta2_data = []
-            self.esp_start_time = time.time()
-            
-            # Vytvorenie a spustenie vlákna
-            self.serial_thread = SerialReader(port)
-            self.serial_thread.raw_data_received.connect(self.process_esp_data)
-            self.serial_thread.start()
-            
-            self.connect_btn.setText("Odpojiť ESP32")
-            self.connect_btn.setStyleSheet("background-color: #ff4c4c; color: white;")
-            self.align_esp_btn.setEnabled(True)
-            print(f"Pripájanie k {port}...")
+        if not port:
+            return
+
+        self.esp_time_data = []
+        self.esp_theta1_data = []
+        self.esp_theta2_data = []
+        self.esp_omega1_data = []
+        self.esp_omega2_data = []
+        self.esp_start_time = time.time()
+
+        self.serial_thread = SerialReader(port)
+        self.serial_thread.raw_data_received.connect(self.process_esp_data)
+        self.serial_thread.start()
+
+        self.connect_btn.setText("Odpojiť ESP32")
+        self.connect_btn.setStyleSheet("background-color: #ff4c4c; color: white;")
+        self.align_esp_btn.setEnabled(True)
+        self.calibrate_btn.setEnabled(True)
+        print(f"Pripájanie k {port}...")
 
     def process_esp_data(self, t1, t2):
-        # Ak simulácia nebeží - aktualizuj len kyvadlo na Tab 1, nepridávaj do bufferu
-        if not self.simulator.is_running:
-            self.last_esp_t1 = t1
-            self.last_esp_t2 = t2
-            r1, r2 = np.radians(t1), np.radians(t2)
-            if self.show_esp_pendulum_cb.isChecked():
-                x1 = -self.simulator.L1 * np.sin(r1)
-                y1 = self.simulator.L1 * np.cos(r1)
-                x2 = x1 - self.simulator.L2 * np.sin(r2)
-                y2 = y1 + self.simulator.L2 * np.cos(r2)
-                self.canvas.update_esp_state(x1, y1, x2, y2)
-            else:
-                self.canvas.esp_coords = None
-                self.canvas.update()
-            return
+        # ─── JEDINÉ miesto na inverziu znamienka senzora ───
+        # Ak po tejto oprave uvidíš, že sim aj ESP spolu sedia, ale obe sú 
+        # na opačnej strane ako reálne kyvadlo, odkomentuj tieto dva riadky:
+        # t1 = -t1
+        # t2 = -t2
         
-        # Simulácia beží - plníme buffer
-        if self.esp_start_time is None:
-            self.esp_start_time = time.time()
-
-        current_time = time.time() - self.esp_start_time
-        r1, r2 = np.radians(t1), np.radians(t2)
         self.last_esp_t1 = t1
         self.last_esp_t2 = t2
+        r1, r2 = np.radians(t1), np.radians(t2)
+
+        # Kreslenie ESP kyvadla (tá istá konvencia ako sim: x = L*sin(θ), y = L*cos(θ))
+        if self.show_esp_pendulum_cb.isChecked():
+            x1 = self.simulator.L1 * np.sin(r1)
+            y1 = self.simulator.L1 * np.cos(r1)
+            x2 = x1 + self.simulator.L2 * np.sin(r2)
+            y2 = y1 + self.simulator.L2 * np.cos(r2)
+            self.canvas.update_esp_state(x1, y1, x2, y2)
+        else:
+            self.canvas.esp_coords = None
+            self.canvas.update()
+
+        # Ak sim nebeží, nepridávaj do bufferu pre grafy
+        if not self.simulator.is_running:
+            return
+
+        # Sim beží → plníme buffer
+        if self.esp_start_time is None:
+            self.esp_start_time = time.time()
+        current_time = time.time() - self.esp_start_time
 
         self.esp_time_data.append(current_time)
         self.esp_theta1_data.append(r1)
         self.esp_theta2_data.append(r2)
-        
-                # Omega - vyhladená numerická derivácia (centrálna diferencia cez 5 bodov)
-        WINDOW = 5  # počet bodov pre vyhladenie
+
+        # Omega — centrálna diferencia cez 5 bodov (vyhladenie)
+        WINDOW = 5
         if len(self.esp_theta1_data) >= WINDOW:
             dt_total = self.esp_time_data[-1] - self.esp_time_data[-WINDOW]
             if dt_total > 0:
@@ -1178,8 +1180,8 @@ class DoublePendulumApp(QMainWindow):
 
         self.esp_omega1_data.append(w1)
         self.esp_omega2_data.append(w2)
-        
-        # Limit buffer
+
+        # Limit bufferu
         MAX_POINTS = 2000
         if len(self.esp_time_data) > MAX_POINTS:
             self.esp_time_data = self.esp_time_data[-MAX_POINTS:]
@@ -1187,21 +1189,8 @@ class DoublePendulumApp(QMainWindow):
             self.esp_theta2_data = self.esp_theta2_data[-MAX_POINTS:]
             self.esp_omega1_data = self.esp_omega1_data[-MAX_POINTS:]
             self.esp_omega2_data = self.esp_omega2_data[-MAX_POINTS:]
-        
-        # ESP kyvadlo na Tab 1
-        if self.show_esp_pendulum_cb.isChecked():
-            x1 = self.simulator.L1 * np.sin(-r1)
-            y1 = self.simulator.L1 * np.cos(-r1)
-            x2 = x1 + self.simulator.L2 * np.sin(-r2)
-            y2 = y1 + self.simulator.L2 * np.cos(-r2)
-            self.canvas.update_esp_state(x1, y1, x2, y2)
-        else:
-            self.canvas.esp_coords = None
-            self.canvas.update()
-        
-        # Len flagnemenapadajú nové dáta - timer prekreslí
-        self.esp_needs_graph_update = True
 
+        self.esp_needs_graph_update = True
     def update_esp_graphs(self):
         """Timer callback - prekresľuje ESP grafy len počas simulácie."""
         if not self.esp_needs_graph_update:
