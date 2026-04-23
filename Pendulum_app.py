@@ -32,15 +32,26 @@ class SerialReader(QThread):
         self.port = port
         self.baudrate = baudrate
         self.running = False
+        self.ser = None  # NOVÉ - referencia na otvorený port
+        self.calibrate_requested = False  # NOVÉ - flag
 
     def run(self):
         try:
             with serial.Serial(self.port, self.baudrate, timeout=0.01) as ser:
+                self.ser = ser  # NOVÉ - ulož referenciu
                 time.sleep(2)
                 ser.flushInput()
                 self.running = True
                 buffer = b""
                 while self.running:
+                    # NOVÉ - ak bola požiadavka na kalibráciu, pošli
+                    if self.calibrate_requested:
+                        try:
+                            ser.write(b"CAL\n")
+                            self.calibrate_requested = False
+                        except Exception as e:
+                            print(f"Send CAL failed: {e}")
+                    
                     data = ser.read(ser.in_waiting or 1)
                     if data:
                         buffer += data
@@ -48,14 +59,19 @@ class SerialReader(QThread):
                             line, buffer = buffer.split(b'\n', 1)
                             line = line.decode('utf-8', errors='ignore').strip()
                             if line:
-                                print(f"GET: {line} @ {time.time():.3f}")
                                 try:
-                                    t2, t1 = map(float, line.split(','))
+                                    t2,t1 = map(float, line.split(','))
                                     self.raw_data_received.emit(t1, t2)
                                 except ValueError:
                                     continue
         except Exception as e:
             print(f"Serial Error: {e}")
+        finally:
+            self.ser = None
+
+    def send_calibration(self):
+        """Nastaví flag - signál CAL pošle run() loop."""
+        self.calibrate_requested = True
 
    
 
@@ -539,6 +555,10 @@ class DoublePendulumApp(QMainWindow):
         self.export_btn.clicked.connect(self.export_data)
         btn_layout.addWidget(self.export_btn)
 
+        self.calibrate_btn = QPushButton("Rekalibrovať senzory (nula)")
+        self.calibrate_btn.clicked.connect(self.calibrate_sensors)
+        self.calibrate_btn.setEnabled(False)  # Vypnuté kým nie je ESP pripojené
+        btn_layout.addWidget(self.calibrate_btn)
         control_layout.addLayout(btn_layout)
 
         # Edit fields validators
@@ -898,38 +918,35 @@ class DoublePendulumApp(QMainWindow):
             self.clear_all_graph_data()
             return
 
+        # Time graphs (vždy keď beží, nie len keď je tab otvorený)
+        history = self.simulator.get_history()
+        self.curve_theta1.setData(history['time'], history['theta1'])
+        self.curve_theta2.setData(history['time'], history['theta2'])
+        self.curve_omega1.setData(history['time'], history['omega1'])
+        self.curve_omega2.setData(history['time'], history['omega2'])
 
-        if self.tabs.currentIndex() == 1 :
-            history = self.simulator.get_history()
-            self.curve_theta1.setData(history['time'], history['theta1'])
-            self.curve_theta2.setData(history['time'], history['theta2'])
-            self.curve_omega1.setData(history['time'], history['omega1'])
-            self.curve_omega2.setData(history['time'], history['omega2'])
-        
-        # Update phase diagrams
-        if self.tabs.currentIndex() == 2 :
-            history = self.simulator.get_history(max_points=5000)
-            self.curve_phase1.setData(history['theta1'], history['omega1'])
-            self.curve_phase2.setData(history['theta2'], history['omega2'])
-            self.curve_config.setData(history['theta1'], history['theta2'])
-            
-            # Update energy plot
-            self.time_data.append(data['time'])
-            self.E_kin_data.append(data['E_kinetic'])
-            self.E_pot_data.append(data['E_potential'])
-            self.E_tot_data.append(data['E_total'])
-            
-            # Limit data points
-            if len(self.time_data) > 10000:
-                self.time_data = self.time_data[-10000:]
-                self.E_kin_data = self.E_kin_data[-10000:]
-                self.E_pot_data = self.E_pot_data[-10000:]
-                self.E_tot_data = self.E_tot_data[-10000:]
-            
-            self.plot_energy.clear()
-            self.plot_energy.plot(self.time_data, self.E_kin_data, pen='g', name='Kinetic')
-            self.plot_energy.plot(self.time_data, self.E_pot_data, pen='b', name='Potential')
-            self.plot_energy.plot(self.time_data, self.E_tot_data, pen='r', name='Total')
+        # Analysis graphs
+        history_short = self.simulator.get_history(max_points=5000)
+        self.curve_phase1.setData(history_short['theta1'], history_short['omega1'])
+        self.curve_phase2.setData(history_short['theta2'], history_short['omega2'])
+        self.curve_config.setData(history_short['theta1'], history_short['theta2'])
+
+        # Energy plot
+        self.time_data.append(data['time'])
+        self.E_kin_data.append(data['E_kinetic'])
+        self.E_pot_data.append(data['E_potential'])
+        self.E_tot_data.append(data['E_total'])
+
+        if len(self.time_data) > 10000:
+            self.time_data = self.time_data[-10000:]
+            self.E_kin_data = self.E_kin_data[-10000:]
+            self.E_pot_data = self.E_pot_data[-10000:]
+            self.E_tot_data = self.E_tot_data[-10000:]
+
+        self.plot_energy.clear()
+        self.plot_energy.plot(self.time_data, self.E_kin_data, pen='g', name='Kinetic')
+        self.plot_energy.plot(self.time_data, self.E_pot_data, pen='b', name='Potential')
+        self.plot_energy.plot(self.time_data, self.E_tot_data, pen='r', name='Total')
 
     def set_default_parameters(self):
         # set default values for pendulum simulation
@@ -1085,6 +1102,13 @@ class DoublePendulumApp(QMainWindow):
 
             self.align_esp_btn.setEnabled(False)
 
+            # Pri ODPOJENÍ
+            self.align_esp_btn.setEnabled(False)
+            self.calibrate_btn.setEnabled(False)  # NOVÉ
+
+            # Pri PRIPOJENÍ
+            self.align_esp_btn.setEnabled(True)
+            self.calibrate_btn.setEnabled(True)  # NOVÉ
             # Skryjeme ESP kyvadlo pri odpojení
             self.canvas.esp_coords = None
             self.canvas.update()
@@ -1117,9 +1141,9 @@ class DoublePendulumApp(QMainWindow):
             self.last_esp_t2 = t2
             r1, r2 = np.radians(t1), np.radians(t2)
             if self.show_esp_pendulum_cb.isChecked():
-                x1 = self.simulator.L1 * np.sin(r1)
+                x1 = -self.simulator.L1 * np.sin(r1)
                 y1 = self.simulator.L1 * np.cos(r1)
-                x2 = x1 + self.simulator.L2 * np.sin(r2)
+                x2 = x1 - self.simulator.L2 * np.sin(r2)
                 y2 = y1 + self.simulator.L2 * np.cos(r2)
                 self.canvas.update_esp_state(x1, y1, x2, y2)
             else:
@@ -1130,7 +1154,7 @@ class DoublePendulumApp(QMainWindow):
         # Simulácia beží - plníme buffer
         if self.esp_start_time is None:
             self.esp_start_time = time.time()
-        
+
         current_time = time.time() - self.esp_start_time
         r1, r2 = np.radians(t1), np.radians(t2)
         self.last_esp_t1 = t1
@@ -1140,17 +1164,18 @@ class DoublePendulumApp(QMainWindow):
         self.esp_theta1_data.append(r1)
         self.esp_theta2_data.append(r2)
         
-        # Dopočet omegy
-        if len(self.esp_time_data) >= 2:
-            dt = self.esp_time_data[-1] - self.esp_time_data[-2]
-            if dt > 0:
-                w1 = (self.esp_theta1_data[-1] - self.esp_theta1_data[-2]) / dt
-                w2 = (self.esp_theta2_data[-1] - self.esp_theta2_data[-2]) / dt
+                # Omega - vyhladená numerická derivácia (centrálna diferencia cez 5 bodov)
+        WINDOW = 5  # počet bodov pre vyhladenie
+        if len(self.esp_theta1_data) >= WINDOW:
+            dt_total = self.esp_time_data[-1] - self.esp_time_data[-WINDOW]
+            if dt_total > 0:
+                w1 = (self.esp_theta1_data[-1] - self.esp_theta1_data[-WINDOW]) / dt_total
+                w2 = (self.esp_theta2_data[-1] - self.esp_theta2_data[-WINDOW]) / dt_total
             else:
                 w1 = w2 = 0.0
         else:
             w1 = w2 = 0.0
-        
+
         self.esp_omega1_data.append(w1)
         self.esp_omega2_data.append(w2)
         
@@ -1165,10 +1190,10 @@ class DoublePendulumApp(QMainWindow):
         
         # ESP kyvadlo na Tab 1
         if self.show_esp_pendulum_cb.isChecked():
-            x1 = self.simulator.L1 * np.sin(r1)
-            y1 = self.simulator.L1 * np.cos(r1)
-            x2 = x1 + self.simulator.L2 * np.sin(r2)
-            y2 = y1 + self.simulator.L2 * np.cos(r2)
+            x1 = self.simulator.L1 * np.sin(-r1)
+            y1 = self.simulator.L1 * np.cos(-r1)
+            x2 = x1 + self.simulator.L2 * np.sin(-r2)
+            y2 = y1 + self.simulator.L2 * np.cos(-r2)
             self.canvas.update_esp_state(x1, y1, x2, y2)
         else:
             self.canvas.esp_coords = None
@@ -1176,6 +1201,7 @@ class DoublePendulumApp(QMainWindow):
         
         # Len flagnemenapadajú nové dáta - timer prekreslí
         self.esp_needs_graph_update = True
+
     def update_esp_graphs(self):
         """Timer callback - prekresľuje ESP grafy len počas simulácie."""
         if not self.esp_needs_graph_update:
@@ -1269,6 +1295,20 @@ class DoublePendulumApp(QMainWindow):
                 print(f"Export error (ESP): {e}")
         
         self.time_label.setText(f"Exported to: {folder}")
+
+    def calibrate_sensors(self):
+        """Pošle CAL signál do ESP32 aby sa rekalibroval offset."""
+        if self.serial_thread is None or not self.serial_thread.isRunning():
+            print("ESP32 nie je pripojené.")
+            return
+        
+        try:
+            # Získaj prístup k serial portu cez thread
+            self.serial_thread.send_calibration()
+            self.time_label.setText("Rekalibrácia poslaná — podrž kyvadlo dole 1s")
+            print("CAL signál poslaný do ESP32")
+        except Exception as e:
+            print(f"Chyba kalibrácie: {e}")
 def main():
     app = QApplication(sys.argv)
     
