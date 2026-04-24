@@ -22,6 +22,7 @@ import serial.tools.list_ports
 from PyQt6.QtCore import QThread
 import time
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QObject, QLocale
+from pyqtgraph.exporters import ImageExporter
 
 
 class SerialReader(QThread):
@@ -60,7 +61,7 @@ class SerialReader(QThread):
                             line = line.decode('utf-8', errors='ignore').strip()
                             if line:
                                 try:
-                                    t2,t1 = map(float, line.split(','))
+                                    t2,t1 = map(float, line.split(','))                        
                                     self.raw_data_received.emit(t1, t2)
                                 except ValueError:
                                     continue
@@ -356,25 +357,23 @@ class PendulumCanvas(QWidget):
             painter.drawEllipse(int(pivot_x - 6), int(pivot_y - 6), 12, 12)
         if self.esp_coords:
             ex1, ey1, ex2, ey2 = self.esp_coords
-            
-            # Nastavenie štýlu: Zelená prerušovaná čiara pre ESP
-            esp_pen = QPen(QColor(0, 255, 0, 180), 3, Qt.PenStyle.DashLine)
+
+            # Modrá prerušovaná čiara pre ESP
+            esp_pen = QPen(QColor(0, 150, 255, 200), 3, Qt.PenStyle.DashLine)
             painter.setPen(esp_pen)
-            
-            # Súradnice pre ESP body
+
             eb1x, eb1y = center_x + ex1 * scale, center_y + ey1 * scale
             eb2x, eb2y = center_x + ex2 * scale, center_y + ey2 * scale
-            
-            # Kreslenie tyčí ESP kyvadla
+
             painter.drawLine(int(pivot_x), int(pivot_y), int(eb1x), int(eb1y))
             painter.drawLine(int(eb1x), int(eb1y), int(eb2x), int(eb2y))
-            
-            # Kreslenie kĺbov ESP kyvadla (menšie zelené krúžky)
-            painter.setBrush(QBrush(QColor(0, 255, 0, 150)))
+
+            # Modré kĺby ESP kyvadla
+            painter.setBrush(QBrush(QColor(0, 150, 255, 180)))
             painter.setPen(Qt.PenStyle.NoPen)
             painter.drawEllipse(int(eb1x - 6), int(eb1y - 6), 12, 12)
             painter.drawEllipse(int(eb2x - 6), int(eb2y - 6), 12, 12)
-        # 3d render for tail
+
         if self.show_trail and len(self.trail) > 1:
             painter.setPen(QPen(QColor(255, 255, 255, 150), 1))
             for i in range(1, len(self.trail)):
@@ -656,37 +655,37 @@ class DoublePendulumApp(QMainWindow):
         layout = QGridLayout(tab)
         
         # θ1 Plot
-        self.plot_theta1 = pg.PlotWidget(title="θ1 vs Time")
+        self.plot_theta1 = pg.PlotWidget(title="θ1 vs Čas")
         self.plot_theta1.setBackground('w')
-        self.plot_theta1.setLabel('left', 'θ1', units='rad')
-        self.plot_theta1.setLabel('bottom', 'Time', units='s')
+        self.plot_theta1.setLabel('left', 'Uhol θ1', units='rad')
+        self.plot_theta1.setLabel('bottom', 'Čas', units='s')
         self.plot_theta1.addLegend()
         self.curve_theta1 = self.plot_theta1.plot(pen=pg.mkPen('b', width=3), name='Simulácia')
         self.curve_esp_theta1 = self.plot_theta1.plot(pen=pg.mkPen('orange', width=2, style=Qt.PenStyle.DashLine), name='ESP')
-        
+
         # θ2 Plot
-        self.plot_theta2 = pg.PlotWidget(title="θ2 vs Time")
+        self.plot_theta2 = pg.PlotWidget(title="θ2 vs Čas")
         self.plot_theta2.setBackground('w')
-        self.plot_theta2.setLabel('left', 'θ2', units='rad')
-        self.plot_theta2.setLabel('bottom', 'Time', units='s')
+        self.plot_theta2.setLabel('left', 'Uhol θ2', units='rad')
+        self.plot_theta2.setLabel('bottom', 'Čas', units='s')
         self.plot_theta2.addLegend()
         self.curve_theta2 = self.plot_theta2.plot(pen=pg.mkPen('r', width=3), name='Simulácia')
         self.curve_esp_theta2 = self.plot_theta2.plot(pen=pg.mkPen('orange', width=2, style=Qt.PenStyle.DashLine), name='ESP')
-        
+
         # ω1 Plot
-        self.plot_omega1 = pg.PlotWidget(title="ω1 vs Time")
+        self.plot_omega1 = pg.PlotWidget(title="ω1 vs Čas")
         self.plot_omega1.setBackground('w')
-        self.plot_omega1.setLabel('left', 'ω1', units='rad/s')
-        self.plot_omega1.setLabel('bottom', 'Time', units='s')
+        self.plot_omega1.setLabel('left', 'Uhlová rýchlosť ω1', units='rad/s')
+        self.plot_omega1.setLabel('bottom', 'Čas', units='s')
         self.plot_omega1.addLegend()
         self.curve_omega1 = self.plot_omega1.plot(pen=pg.mkPen('g', width=3), name='Simulácia')
         self.curve_esp_omega1 = self.plot_omega1.plot(pen=pg.mkPen('orange', width=2, style=Qt.PenStyle.DashLine), name='ESP')
-        
+
         # ω2 Plot
-        self.plot_omega2 = pg.PlotWidget(title="ω2 vs Time")
+        self.plot_omega2 = pg.PlotWidget(title="ω2 vs Čas")
         self.plot_omega2.setBackground('w')
-        self.plot_omega2.setLabel('left', 'ω2', units='rad/s')
-        self.plot_omega2.setLabel('bottom', 'Time', units='s')
+        self.plot_omega2.setLabel('left', 'Uhlová rýchlosť ω2', units='rad/s')
+        self.plot_omega2.setLabel('bottom', 'Čas', units='s')
         self.plot_omega2.addLegend()
         self.curve_omega2 = self.plot_omega2.plot(pen=pg.mkPen('m', width=3), name='Simulácia')
         self.curve_esp_omega2 = self.plot_omega2.plot(pen=pg.mkPen('orange', width=2, style=Qt.PenStyle.DashLine), name='ESP')
@@ -704,37 +703,37 @@ class DoublePendulumApp(QMainWindow):
         layout = QGridLayout(tab)
         
         # Phase space 1
-        self.plot_phase1 = pg.PlotWidget(title="Phase Space: θ1 vs ω1")
+        self.plot_phase1 = pg.PlotWidget(title="Fázový priestor: θ1 vs ω1")
         self.plot_phase1.setBackground('w')
-        self.plot_phase1.setLabel('left', 'ω1', units='rad/s')
-        self.plot_phase1.setLabel('bottom', 'θ1', units='rad')
+        self.plot_phase1.setLabel('left', 'Uhlová rýchlosť ω1', units='rad/s')
+        self.plot_phase1.setLabel('bottom', 'Uhol θ1', units='rad')
         self.plot_phase1.addLegend()
         self.curve_phase1 = self.plot_phase1.plot(pen=pg.mkPen('b', width=3), name='Simulácia')
         self.curve_esp_phase1 = self.plot_phase1.plot(pen=pg.mkPen('orange', width=2, style=Qt.PenStyle.DashLine), name='ESP')
-        
+
         # Phase space 2
-        self.plot_phase2 = pg.PlotWidget(title="Phase Space: θ2 vs ω2")
+        self.plot_phase2 = pg.PlotWidget(title="Fázový priestor: θ2 vs ω2")
         self.plot_phase2.setBackground('w')
-        self.plot_phase2.setLabel('left', 'ω2', units='rad/s')
-        self.plot_phase2.setLabel('bottom', 'θ2', units='rad')
+        self.plot_phase2.setLabel('left', 'Uhlová rýchlosť ω2', units='rad/s')
+        self.plot_phase2.setLabel('bottom', 'Uhol θ2', units='rad')
         self.plot_phase2.addLegend()
         self.curve_phase2 = self.plot_phase2.plot(pen=pg.mkPen('r', width=3), name='Simulácia')
         self.curve_esp_phase2 = self.plot_phase2.plot(pen=pg.mkPen('orange', width=2, style=Qt.PenStyle.DashLine), name='ESP')
-        
+
         # Configuration space
-        self.plot_config = pg.PlotWidget(title="Configuration Space: θ1 vs θ2")
+        self.plot_config = pg.PlotWidget(title="Konfiguračný priestor: θ1 vs θ2")
         self.plot_config.setBackground('w')
-        self.plot_config.setLabel('left', 'θ2', units='rad')
-        self.plot_config.setLabel('bottom', 'θ1', units='rad')
+        self.plot_config.setLabel('left', 'Uhol θ2', units='rad')
+        self.plot_config.setLabel('bottom', 'Uhol θ1', units='rad')
         self.plot_config.addLegend()
         self.curve_config = self.plot_config.plot(pen=pg.mkPen('m', width=3), name='Simulácia')
         self.curve_esp_config = self.plot_config.plot(pen=pg.mkPen('orange', width=2, style=Qt.PenStyle.DashLine), name='ESP')
-        
+
         # Energy plot
-        self.plot_energy = pg.PlotWidget(title="Energy vs Time")
+        self.plot_energy = pg.PlotWidget(title="Energia vs Čas")
         self.plot_energy.setBackground('w')
-        self.plot_energy.setLabel('left', 'Energy', units='J')
-        self.plot_energy.setLabel('bottom', 'Time', units='s')
+        self.plot_energy.setLabel('left', 'Energia', units='J')
+        self.plot_energy.setLabel('bottom', 'Čas', units='s')
         self.plot_energy.addLegend()
         
         layout.addWidget(self.plot_phase1, 0, 0)
@@ -793,27 +792,33 @@ class DoublePendulumApp(QMainWindow):
             self.canvas.set_initial_position(theta1, theta2)
         
     def start_simulation(self):
-
+        # Reset simulátora na aktuálnu pozíciu zo sliderov
         theta1 = self.theta1_slider.value() * np.pi / 180
         theta2 = self.theta2_slider.value() * np.pi / 180
         self.simulator.reset(theta1, theta2)
-        # Reset ESP bufferu - obe krivky začnú od času 0
+
+        # Vyčisti všetky bufferé pre čistý graf od t=0
+        self.time_data = []
+        self.E_kin_data = []
+        self.E_pot_data = []
+        self.E_tot_data = []
+        self.canvas.trail.clear()
+
+        # ESP bufferé - aby sim aj meranie začali od rovnakého t=0
         self.esp_time_data = []
         self.esp_theta1_data = []
         self.esp_theta2_data = []
-        self.esp_omega1_data = []
-        self.esp_omega2_data = []
         self.esp_start_time = time.time()
-        
+
         self.simulator.start()
-        
+
         self.start_btn.setEnabled(False)
         self.stop_btn.setEnabled(True)
         self.theta1_slider.setEnabled(False)
         self.theta2_slider.setEnabled(False)
         self.default_btn.setEnabled(False)
         self.time_limit_slider.setEnabled(False)
-        
+            
     def stop_simulation(self):
         self.simulator.stop()
     
@@ -1074,23 +1079,10 @@ class DoublePendulumApp(QMainWindow):
 
         self.tabs.addTab(tab, "ESP32 Dáta")
     def refresh_ports(self):
-        
+
         self.port_selector.clear()
         ports = [p.device for p in serial.tools.list_ports.comports()]
         self.port_selector.addItems(ports)
-
-    def toggle_esp_graphs(self, state):
-        self.show_esp_on_graphs = (state == 2 or state == Qt.CheckState.Checked.value)
-        
-        if not self.show_esp_on_graphs:
-            # Vymaž ESP krivky
-            self.curve_esp_theta1.setData([], [])
-            self.curve_esp_theta2.setData([], [])
-            self.curve_esp_omega1.setData([], [])
-            self.curve_esp_omega2.setData([], [])
-            self.curve_esp_phase1.setData([], [])
-            self.curve_esp_phase2.setData([], [])
-            self.curve_esp_config.setData([], [])
 
     def toggle_esp_connection(self):
         # ─── ODPOJENIE ───
@@ -1131,18 +1123,38 @@ class DoublePendulumApp(QMainWindow):
         self.calibrate_btn.setEnabled(True)
         print(f"Pripájanie k {port}...")
 
-    def process_esp_data(self, t1, t2):
-        # ─── JEDINÉ miesto na inverziu znamienka senzora ───
-        # Ak po tejto oprave uvidíš, že sim aj ESP spolu sedia, ale obe sú 
-        # na opačnej strane ako reálne kyvadlo, odkomentuj tieto dva riadky:
-        # t1 = -t1
-        # t2 = -t2
+    def toggle_esp_graphs(self, state):
+        self.show_esp_on_graphs = (state == 2 or state == Qt.CheckState.Checked.value)
         
+        if not self.show_esp_on_graphs:
+            # Vymaž ESP krivky
+            self.curve_esp_theta1.setData([], [])
+            self.curve_esp_theta2.setData([], [])
+            self.curve_esp_omega1.setData([], [])
+            self.curve_esp_omega2.setData([], [])
+            self.curve_esp_phase1.setData([], [])
+            self.curve_esp_phase2.setData([], [])
+            self.curve_esp_config.setData([], [])
+
+    def process_esp_data(self, t1, t2):
+
+        if self.esp_start_time is None:
+            self.esp_start_time = time.time()
+        current_time = time.time() - self.esp_start_time
+
+        # Dead zone - aktívna IBA keď simulácia nebeží
+        if not self.simulator.is_running:
+            THRESHOLD = 1.0
+            if abs(t1) < THRESHOLD:
+                t1 = 0.0
+            if abs(t2) < THRESHOLD:
+                t2 = 0.0
+
         self.last_esp_t1 = t1
         self.last_esp_t2 = t2
         r1, r2 = np.radians(t1), np.radians(t2)
 
-        # Kreslenie ESP kyvadla (tá istá konvencia ako sim: x = L*sin(θ), y = L*cos(θ))
+        # Kreslenie ESP kyvadla (vždy, aj keď sim nebeží)
         if self.show_esp_pendulum_cb.isChecked():
             x1 = self.simulator.L1 * np.sin(r1)
             y1 = self.simulator.L1 * np.cos(r1)
@@ -1153,20 +1165,15 @@ class DoublePendulumApp(QMainWindow):
             self.canvas.esp_coords = None
             self.canvas.update()
 
-        # Ak sim nebeží, nepridávaj do bufferu pre grafy
+        # Buffer plníme iba keď sim beží
         if not self.simulator.is_running:
             return
-
-        # Sim beží → plníme buffer
-        if self.esp_start_time is None:
-            self.esp_start_time = time.time()
-        current_time = time.time() - self.esp_start_time
 
         self.esp_time_data.append(current_time)
         self.esp_theta1_data.append(r1)
         self.esp_theta2_data.append(r2)
 
-        # Omega — centrálna diferencia cez 5 bodov (vyhladenie)
+        # Omega — centrálna diferencia cez WINDOW bodov
         WINDOW = 5
         if len(self.esp_theta1_data) >= WINDOW:
             dt_total = self.esp_time_data[-1] - self.esp_time_data[-WINDOW]
@@ -1177,7 +1184,6 @@ class DoublePendulumApp(QMainWindow):
                 w1 = w2 = 0.0
         else:
             w1 = w2 = 0.0
-
         self.esp_omega1_data.append(w1)
         self.esp_omega2_data.append(w2)
 
@@ -1191,6 +1197,9 @@ class DoublePendulumApp(QMainWindow):
             self.esp_omega2_data = self.esp_omega2_data[-MAX_POINTS:]
 
         self.esp_needs_graph_update = True
+
+        self.esp_needs_graph_update = True
+
     def update_esp_graphs(self):
         """Timer callback - prekresľuje ESP grafy len počas simulácie."""
         if not self.esp_needs_graph_update:
@@ -1283,7 +1292,25 @@ class DoublePendulumApp(QMainWindow):
             except Exception as e:
                 print(f"Export error (ESP): {e}")
         
-        self.time_label.setText(f"Exported to: {folder}")
+        # PNG export grafov
+        plots_to_export = [
+            (self.plot_theta1,  f"{folder}/graf_theta1_{timestamp}.png"),
+            (self.plot_theta2,  f"{folder}/graf_theta2_{timestamp}.png"),
+            (self.plot_omega1,  f"{folder}/graf_omega1_{timestamp}.png"),
+            (self.plot_omega2,  f"{folder}/graf_omega2_{timestamp}.png"),
+            (self.plot_phase1,  f"{folder}/fazovy_theta1_{timestamp}.png"),
+            (self.plot_phase2,  f"{folder}/fazovy_theta2_{timestamp}.png"),
+            (self.plot_config,  f"{folder}/konfiguracny_{timestamp}.png"),
+            (self.plot_energy,  f"{folder}/energia_{timestamp}.png"),
+        ]
+        for plot_widget, png_path in plots_to_export:
+            try:
+                self.export_plot_hires(plot_widget, png_path)
+                print(f"✓ PNG exported: {png_path}")
+            except Exception as e:
+                print(f"Export error (PNG {png_path}): {e}")
+
+        self.time_label.setText(f"Exportované do: {folder}")
 
     def calibrate_sensors(self):
         """Pošle CAL signál do ESP32 aby sa rekalibroval offset."""
@@ -1298,6 +1325,12 @@ class DoublePendulumApp(QMainWindow):
             print("CAL signál poslaný do ESP32")
         except Exception as e:
             print(f"Chyba kalibrácie: {e}")
+
+    def export_plot_hires(self, plot_widget, filename, width=3200):
+        exporter = ImageExporter(plot_widget.plotItem)
+        exporter.parameters()['width'] = width
+        exporter.export(filename)
+        
 def main():
     app = QApplication(sys.argv)
     
