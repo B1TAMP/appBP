@@ -631,6 +631,16 @@ class DoublePendulumApp(QMainWindow):
             self.esp_start_time = time.time()
         current_time = time.time() - self.esp_start_time
 
+        # Konverzia relatívneho θ2 na absolútny uhol od zvislice.
+        # Senzor na dolnom ramene meria uhol voči hornému ramenu,
+        # nie voči zvislici. Prevod: θ2_abs = θ1 + θ2_rel
+        # Ak dolné rameno ide zrkadlovo, zmeň + na -  (viď instrukcie).
+        t2 = t1 + t2
+        if t2 > 180:
+            t2 -= 360
+        elif t2 < -180:
+            t2 += 360
+
         # Dead zone — len keď simulácia nebeží (potlačí šum v pokoji)
         if not self.simulator.is_running:
             THRESHOLD = 1.0
