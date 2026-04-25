@@ -16,7 +16,7 @@ class PendulumCanvas(QWidget):
         super().__init__(parent)
         self.setMinimumSize(600, 600)
 
-        self.L1, self.L2 = 2.0, 2.0
+        self.L1, self.L2 = 0.056, 0.049
         self.x1, self.y1 = 0.0, 0.0
         self.x2, self.y2 = 0.0, 0.0
 

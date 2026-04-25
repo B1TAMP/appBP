@@ -14,11 +14,11 @@ class PendulumSimulator(QObject):
     def __init__(self):
         super().__init__()
 
-        # Fyzikálne parametre
-        self.L1 = 2.0       # dĺžka prvého ramena [m]
-        self.L2 = 2.0       # dĺžka druhého ramena [m]
-        self.m1 = 1.0       # hmotnosť prvého kývača [kg]
-        self.m2 = 1.0       # hmotnosť druhého kývača [kg]
+        # Fyzikálne parametre (zodpovedajú fyzickému modelu z BP)
+        self.L1 = 0.056     # dĺžka prvého ramena [m]
+        self.L2 = 0.049     # dĺžka druhého ramena [m]
+        self.m1 = 0.500     # hmotnosť prvého kývača [kg]
+        self.m2 = 0.342     # hmotnosť druhého kývača [kg]
         self.g = 9.81       # gravitačné zrýchlenie [m/s²]
         self.dt = 0.001     # časový krok [s]
         self.damping = 0.01 # koeficient tlmenia

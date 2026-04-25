@@ -120,15 +120,15 @@ class DoublePendulumApp(QMainWindow):
             grid.addWidget(edit, row, 2)
 
         # Validators
-        val_L = QDoubleValidator(0.1, 5.0, 2)
+        val_L = QDoubleValidator(0.01, 5.0, 3)
         val_L.setLocale(QLocale(QLocale.Language.English, QLocale.Country.UnitedStates))
-        val_m = QDoubleValidator(0.1, 20.0, 2)
+        val_m = QDoubleValidator(0.01, 5.0, 3)
         val_m.setLocale(QLocale(QLocale.Language.English, QLocale.Country.UnitedStates))
 
-        add_param_row(0, "L1 (m):",  "L1", 10,   500,  200, "L1_edit_field", "2.0", val_L)
-        add_param_row(1, "L2 (m):",  "L2", 10,   500,  200, "L2_edit_field", "2.0", val_L)
-        add_param_row(2, "m1 (kg):", "m1", 10,  2000,  100, "m1_edit_field", "1.0", val_m)
-        add_param_row(3, "m2 (kg):", "m2", 10,  2000,  100, "m2_edit_field", "1.0", val_m)
+        add_param_row(0, "L1 (m):",  "L1", 10,  5000,   56, "L1_edit_field", "0.056", val_L)
+        add_param_row(1, "L2 (m):",  "L2", 10,  5000,   49, "L2_edit_field", "0.049", val_L)
+        add_param_row(2, "m1 (kg):", "m1", 10,  5000,  500, "m1_edit_field", "0.500", val_m)
+        add_param_row(3, "m2 (kg):", "m2", 10,  5000,  342, "m2_edit_field", "0.342", val_m)
 
         # Uhly (integer stupne)
         grid.addWidget(QLabel("θ1 (°):"), 4, 0)
@@ -370,16 +370,16 @@ class DoublePendulumApp(QMainWindow):
     # ================================================================== #
 
     def update_parameters(self):
-        L1 = self.L1_slider.value() / 100.0
-        L2 = self.L2_slider.value() / 100.0
-        m1 = self.m1_slider.value() / 100.0
-        m2 = self.m2_slider.value() / 100.0
+        L1 = self.L1_slider.value() / 1000.0
+        L2 = self.L2_slider.value() / 1000.0
+        m1 = self.m1_slider.value() / 1000.0
+        m2 = self.m2_slider.value() / 1000.0
         damping = self.damping_slider.value() / 100.0
 
-        self.L1_edit_field.setText(f"{L1:.2f}")
-        self.L2_edit_field.setText(f"{L2:.2f}")
-        self.m1_edit_field.setText(f"{m1:.2f}")
-        self.m2_edit_field.setText(f"{m2:.2f}")
+        self.L1_edit_field.setText(f"{L1:.3f}")
+        self.L2_edit_field.setText(f"{L2:.3f}")
+        self.m1_edit_field.setText(f"{m1:.3f}")
+        self.m2_edit_field.setText(f"{m2:.3f}")
         self.damping_label.setText(f"{damping:.2f}")
 
         self.simulator.set_parameters(L1, L2, m1, m2, damping)
@@ -399,7 +399,7 @@ class DoublePendulumApp(QMainWindow):
                 self.m2_edit_field: self.m2_slider,
             }
             if sender in mapping:
-                mapping[sender].setValue(int(val * 100))
+                mapping[sender].setValue(int(val * 1000))
         except ValueError:
             pass
         self.update_parameters()
@@ -414,10 +414,10 @@ class DoublePendulumApp(QMainWindow):
         self.canvas.set_initial_position(t1, t2)
 
     def set_default_parameters(self):
-        self.L1_slider.setValue(50)
-        self.L2_slider.setValue(50)
-        self.m1_slider.setValue(50)
-        self.m2_slider.setValue(50)
+        self.L1_slider.setValue(56)
+        self.L2_slider.setValue(49)
+        self.m1_slider.setValue(500)
+        self.m2_slider.setValue(342)
         self.damping_slider.setValue(2)
         self.update_parameters()
         self.update_initial_angles()
