@@ -125,8 +125,8 @@ class DoublePendulumApp(QMainWindow):
         val_m = QDoubleValidator(0.01, 5.0, 3)
         val_m.setLocale(QLocale(QLocale.Language.English, QLocale.Country.UnitedStates))
 
-        add_param_row(0, "L1 (m):",  "L1", 10,  5000,   56, "L1_edit_field", "0.056", val_L)
-        add_param_row(1, "L2 (m):",  "L2", 10,  5000,   49, "L2_edit_field", "0.049", val_L)
+        add_param_row(0, "L1 (m):",  "L1",  1,  5000,   56, "L1_edit_field", "0.056", val_L)
+        add_param_row(1, "L2 (m):",  "L2",  1,  5000,   49, "L2_edit_field", "0.049", val_L)
         add_param_row(2, "m1 (kg):", "m1", 10,  5000,  500, "m1_edit_field", "0.500", val_m)
         add_param_row(3, "m2 (kg):", "m2", 10,  5000,  342, "m2_edit_field", "0.342", val_m)
 
@@ -378,8 +378,8 @@ class DoublePendulumApp(QMainWindow):
 
         self.L1_edit_field.setText(f"{L1:.3f}")
         self.L2_edit_field.setText(f"{L2:.3f}")
-        self.m1_edit_field.setText(f"{m1:.3f}")
-        self.m2_edit_field.setText(f"{m2:.3f}")
+        self.m1_edit_field.setText(f"{m1:.2f}")
+        self.m2_edit_field.setText(f"{m2:.2f}")
         self.damping_label.setText(f"{damping:.2f}")
 
         self.simulator.set_parameters(L1, L2, m1, m2, damping)
