@@ -236,6 +236,11 @@ class DoublePendulumApp(QMainWindow):
         self.show_esp_graphs_cb.stateChanged.connect(self.toggle_esp_graphs)
         row.addWidget(self.show_esp_graphs_cb)
 
+        self.compound_cb = QCheckBox("Compound model (rozložená hmota)")
+        self.compound_cb.setChecked(False)
+        self.compound_cb.stateChanged.connect(self.toggle_compound)
+        row.addWidget(self.compound_cb)
+
         group.setLayout(row)
         return group
 
@@ -569,6 +574,20 @@ class DoublePendulumApp(QMainWindow):
     def toggle_rods(self, state):
         self.canvas.show_rods = (state == Qt.CheckState.Checked.value)
         self.canvas.update()
+
+    def toggle_compound(self, state):
+        """Prepnutie medzi point-mass a compound modelom."""
+        is_checked = (state == 2 or state == Qt.CheckState.Checked.value)
+        self.simulator.use_compound = is_checked
+        if is_checked:
+            print("Aktívny model: COMPOUND (rozložená hmota)")
+            print(f"  I1_pivot = {self.simulator.I1_pivot:.4f} kg·m²")
+            print(f"  d_cm1    = {self.simulator.d_cm1:.4f} m")
+            print(f"  L1_geom  = {self.simulator.L1_geom:.4f} m")
+            print(f"  I2_pivot = {self.simulator.I2_pivot:.4f} kg·m²")
+            print(f"  d_cm2    = {self.simulator.d_cm2:.4f} m")
+        else:
+            print("Aktívny model: POINT-MASS (bodové hmotnosti)")
 
     def toggle_esp_graphs(self, state):
         self.show_esp_on_graphs = (state == Qt.CheckState.Checked.value)

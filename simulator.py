@@ -23,6 +23,17 @@ class PendulumSimulator(QObject):
         self.dt = 0.001     # časový krok [s]
         self.damping = 0.01 # koeficient tlmenia
 
+        # Compound model parametre (rozložená hmota)
+        # Predvolené z BP_vypocet_parametrov.txt
+        self.use_compound = False  # False = point-mass, True = compound
+        # Horné rameno
+        self.I1_pivot = 3.37e-3   # kg·m² moment zotrvačnosti k pivotu
+        self.d_cm1 = 0.0559       # m vzdialenosť ťažiska od pivotu
+        self.L1_geom = 0.125      # m geometrická dĺžka (pivot-pivot)
+        # Spodné rameno
+        self.I2_pivot = 1.45e-3   # kg·m² moment zotrvačnosti k pivotu
+        self.d_cm2 = 0.0488       # m vzdialenosť ťažiska od pivotu
+
         # Stavový vektor: [theta1, theta2, omega1, omega2]
         self.state = np.array([120 * np.pi / 180, -100 * np.pi / 180, 0.0, 0.0])
         self.time = 0.0
@@ -92,12 +103,43 @@ class PendulumSimulator(QObject):
 
         return np.array([w1, w2, dw1, dw2])
 
+    def pendulum_derivatives_compound(self, state):
+        """
+        Compound (rozložená hmota) rovnice pohybu.
+        Lagrangian s I_pivot, d_cm a L_geom pre každé rameno.
+        Theta = 0 je kyvadlo visiace dole (stabilná rovnováha).
+        """
+        th1, th2, w1, w2 = state
+        delta = th1 - th2
+
+        alpha1 = self.I1_pivot + self.m2 * self.L1_geom ** 2
+        alpha2 = self.I2_pivot
+        beta   = self.m2 * self.L1_geom * self.d_cm2
+        M1     = self.m1 * self.d_cm1 + self.m2 * self.L1_geom
+        M2     = self.m2 * self.d_cm2
+
+        cos_d = np.cos(delta)
+        sin_d = np.sin(delta)
+
+        A = np.array([[alpha1,          beta * cos_d],
+                      [beta * cos_d,    alpha2      ]])
+        b = np.array([-beta * sin_d * w2 ** 2 - M1 * self.g * np.sin(th1),
+                       beta * sin_d * w1 ** 2 - M2 * self.g * np.sin(th2)])
+
+        ddth = np.linalg.solve(A, b)
+        dw1 = ddth[0] - self.damping * w1
+        dw2 = ddth[1] - self.damping * w2
+
+        return np.array([w1, w2, dw1, dw2])
+
     def rk4_step(self):
         """Jeden krok Runge-Kutta 4. rádu."""
-        k1 = self.pendulum_derivatives(self.state)
-        k2 = self.pendulum_derivatives(self.state + 0.5 * self.dt * k1)
-        k3 = self.pendulum_derivatives(self.state + 0.5 * self.dt * k2)
-        k4 = self.pendulum_derivatives(self.state + self.dt * k3)
+        deriv = (self.pendulum_derivatives_compound
+                 if self.use_compound else self.pendulum_derivatives)
+        k1 = deriv(self.state)
+        k2 = deriv(self.state + 0.5 * self.dt * k1)
+        k3 = deriv(self.state + 0.5 * self.dt * k2)
+        k4 = deriv(self.state + self.dt * k3)
         self.state += self.dt / 6 * (k1 + 2 * k2 + 2 * k3 + k4)
         self.time += self.dt
 
