@@ -263,13 +263,13 @@ class DoublePendulumApp(QMainWindow):
         grid = QGridLayout(tab)
 
         self.plot_theta1, self.curve_theta1, self.curve_esp_theta1 = self._make_plot(
-            "θ1 vs Čas", "Uhol θ1 (rad)", "Čas (s)", 'b')
+            "θ1 vs Čas", "θ1 [rad]", "Čas [s]", 'b')
         self.plot_theta2, self.curve_theta2, self.curve_esp_theta2 = self._make_plot(
-            "θ2 vs Čas", "Uhol θ2 (rad)", "Čas (s)", 'r')
+            "θ2 vs Čas", "θ2 [rad]", "Čas [s]", 'r')
         self.plot_omega1, self.curve_omega1, self.curve_esp_omega1 = self._make_plot(
-            "ω1 vs Čas", "Uhlová rýchlosť ω1 (rad/s)", "Čas (s)", 'g')
+            "ω1 vs Čas", "ω1 [rad/s]", "Čas [s]", 'g')
         self.plot_omega2, self.curve_omega2, self.curve_esp_omega2 = self._make_plot(
-            "ω2 vs Čas", "Uhlová rýchlosť ω2 (rad/s)", "Čas (s)", 'm')
+            "ω2 vs Čas", "ω2 [rad/s]", "Čas [s]", 'm')
 
         grid.addWidget(self.plot_theta1, 0, 0)
         grid.addWidget(self.plot_theta2, 0, 1)
@@ -281,6 +281,8 @@ class DoublePendulumApp(QMainWindow):
         """Vytvorí PlotWidget so simulačnou a ESP krivkou."""
         plot = pg.PlotWidget(title=title)
         plot.setBackground('w')
+        plot.getAxis('left').enableAutoSIPrefix(False)
+        plot.getAxis('bottom').enableAutoSIPrefix(False)
         plot.setLabel('left', ylabel)
         plot.setLabel('bottom', xlabel)
         plot.addLegend()
@@ -298,16 +300,18 @@ class DoublePendulumApp(QMainWindow):
         grid = QGridLayout(tab)
 
         self.plot_phase1, self.curve_phase1, self.curve_esp_phase1 = self._make_plot(
-            "Fázový priestor: θ1 vs ω1", "Uhlová rýchlosť ω1 (rad/s)", "Uhol θ1 (rad)", 'b')
+            "Fázový priestor: θ1 vs ω1", "ω1 [rad/s]", "θ1 [rad]", 'b')
         self.plot_phase2, self.curve_phase2, self.curve_esp_phase2 = self._make_plot(
-            "Fázový priestor: θ2 vs ω2", "Uhlová rýchlosť ω2 (rad/s)", "Uhol θ2 (rad)", 'r')
+            "Fázový priestor: θ2 vs ω2", "ω2 [rad/s]", "θ2 [rad]", 'r')
         self.plot_config, self.curve_config, self.curve_esp_config = self._make_plot(
-            "Konfiguračný priestor: θ1 vs θ2", "Uhol θ2 (rad)", "Uhol θ1 (rad)", 'm')
+            "Konfiguračný priestor: θ1 vs θ2", "θ2 [rad]", "θ1 [rad]", 'm')
 
         self.plot_energy = pg.PlotWidget(title="Energia vs Čas")
         self.plot_energy.setBackground('w')
-        self.plot_energy.setLabel('left', "Energia (J)")
-        self.plot_energy.setLabel('bottom', "Čas (s)")
+        self.plot_energy.getAxis('left').enableAutoSIPrefix(False)
+        self.plot_energy.getAxis('bottom').enableAutoSIPrefix(False)
+        self.plot_energy.setLabel('left', "Energia [J]")
+        self.plot_energy.setLabel('bottom', "Čas [s]")
         self.plot_energy.addLegend()
 
         grid.addWidget(self.plot_phase1, 0, 0)
