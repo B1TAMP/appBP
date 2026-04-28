@@ -8,9 +8,11 @@ import sys
 from anyio import current_time
 import numpy as np
 from collections import deque
-from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
-                             QHBoxLayout, QTabWidget, QLabel, QSlider, QPushButton,     
-                             QLineEdit, QCheckBox, QGridLayout, QGroupBox,QComboBox)
+from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
+                             QHBoxLayout, QTabWidget, QLabel, QSlider, QPushButton,
+                             QLineEdit, QCheckBox, QGridLayout, QGroupBox, QComboBox,
+                             QSpinBox, QDoubleSpinBox, QFileDialog)
+import csv
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QObject
 from PyQt6.QtGui import QPainter, QPen, QColor, QBrush
 import pyqtgraph as pg
@@ -89,14 +91,14 @@ class PendulumSimulator(QObject):
     def __init__(self):
         super().__init__()
         
-        # Simulation parameters
-        self.L1 = 2.0
-        self.L2 = 2.0
-        self.m1 = 1.0
-        self.m2 = 1.0
+        # Simulation parameters - kalibrované pre fyzické kyvadlo
+        self.L1 = 0.135
+        self.L2 = 0.087
+        self.m1 = 0.50
+        self.m2 = 0.34
         self.g = 9.81
         self.dt = 0.001  # 1ms timestep
-        self.damping = 0.01 
+        self.damping = 0.70
         # State vector [theta1, theta2, omega1, omega2]
         self.state = np.array([120 * np.pi / 180, -100 * np.pi / 180, 0.0, 0.0])
         self.time = 0.0
@@ -431,6 +433,7 @@ class DoublePendulumApp(QMainWindow):
         self.create_graphs_tab()
         self.create_analysis_tab()
         self.create_esp32_tab()
+        self.create_multi_measurement_tab()
         
     def create_simulation_tab(self):
         """Tab 1: Simulation and Control"""
@@ -459,38 +462,38 @@ class DoublePendulumApp(QMainWindow):
         params_layout.addWidget(QLabel("L1 (m):"), 0, 0)
         self.L1_slider = QSlider(Qt.Orientation.Horizontal)
         self.L1_slider.setRange(10, 500)
-        self.L1_slider.setValue(200)
+        self.L1_slider.setValue(14)  # default 0.14 m, presný 0.135 cez edit field
         self.L1_slider.valueChanged.connect(self.update_parameters)
         params_layout.addWidget(self.L1_slider, 0, 1)
-        self.L1_label = QLabel("2.0")
+        self.L1_label = QLabel("0.140")
         params_layout.addWidget(self.L1_label, 0, 2)
         
         params_layout.addWidget(QLabel("L2 (m):"), 1, 0)
         self.L2_slider = QSlider(Qt.Orientation.Horizontal)
         self.L2_slider.setRange(10, 500)
-        self.L2_slider.setValue(200)
+        self.L2_slider.setValue(9)   # default 0.09 m, presný 0.087 cez edit field
         self.L2_slider.valueChanged.connect(self.update_parameters)
         params_layout.addWidget(self.L2_slider, 1, 1)
-        self.L2_label = QLabel("2.0")
+        self.L2_label = QLabel("0.090")
         params_layout.addWidget(self.L2_label, 1, 2)
         
         # Mass sliders
         params_layout.addWidget(QLabel("m1 (kg):"), 2, 0)
         self.m1_slider = QSlider(Qt.Orientation.Horizontal)
         self.m1_slider.setRange(10, 2000)
-        self.m1_slider.setValue(100)
+        self.m1_slider.setValue(50)  # 0.50 kg
         self.m1_slider.valueChanged.connect(self.update_parameters)
         params_layout.addWidget(self.m1_slider, 2, 1)
-        self.m1_label = QLabel("1.0")
+        self.m1_label = QLabel("0.50")
         params_layout.addWidget(self.m1_label, 2, 2)
         
         params_layout.addWidget(QLabel("m2 (kg):"), 3, 0)
         self.m2_slider = QSlider(Qt.Orientation.Horizontal)
         self.m2_slider.setRange(10, 2000)
-        self.m2_slider.setValue(100)
+        self.m2_slider.setValue(34)  # 0.34 kg
         self.m2_slider.valueChanged.connect(self.update_parameters)
         params_layout.addWidget(self.m2_slider, 3, 1)
-        self.m2_label = QLabel("1.0")
+        self.m2_label = QLabel("0.34")
         params_layout.addWidget(self.m2_label, 3, 2)
     
         # Angle sliders
@@ -516,10 +519,10 @@ class DoublePendulumApp(QMainWindow):
         params_layout.addWidget(QLabel("Damping (c):"), 7, 0)
         self.damping_slider = QSlider(Qt.Orientation.Horizontal)
         self.damping_slider.setRange(0, 200)
-        self.damping_slider.setValue(2)
+        self.damping_slider.setValue(70)  # damping 0.70
         self.damping_slider.valueChanged.connect(self.update_parameters)
         params_layout.addWidget(self.damping_slider, 7, 1)
-        self.damping_label = QLabel("0.02")
+        self.damping_label = QLabel("0.70")
         params_layout.addWidget(self.damping_label, 7, 2)
 
         params_group.setLayout(params_layout)
@@ -570,22 +573,22 @@ class DoublePendulumApp(QMainWindow):
         validator_m.setNotation(QDoubleValidator.Notation.StandardNotation)
 
         # Edit fields
-        self.L1_edit_field = QLineEdit("2.0")
+        self.L1_edit_field = QLineEdit("0.135")
         self.L1_edit_field.setFixedWidth(50)
         self.L1_edit_field.setValidator(validator_L)
         params_layout.addWidget(self.L1_edit_field, 0, 2)
         
-        self.L2_edit_field = QLineEdit("2.0")
+        self.L2_edit_field = QLineEdit("0.087")
         self.L2_edit_field.setFixedWidth(50)
         self.L2_edit_field.setValidator(validator_L)
         params_layout.addWidget(self.L2_edit_field, 1, 2)
     
-        self.m1_edit_field = QLineEdit("1.0")
+        self.m1_edit_field = QLineEdit("0.50")
         self.m1_edit_field.setFixedWidth(50)
         self.m1_edit_field.setValidator(validator_m)
         params_layout.addWidget(self.m1_edit_field, 2, 2)       
         
-        self.m2_edit_field = QLineEdit("1.0")
+        self.m2_edit_field = QLineEdit("0.34")
         self.m2_edit_field.setFixedWidth(50)
         self.m2_edit_field.setValidator(validator_m)
         params_layout.addWidget(self.m2_edit_field, 3, 2)   
@@ -956,13 +959,21 @@ class DoublePendulumApp(QMainWindow):
         self.plot_energy.plot(self.time_data, self.E_tot_data, pen='r', name='Total')
 
     def set_default_parameters(self):
-        # set default values for pendulum simulation
-        self.L1_slider.setValue(50)
-        self.L2_slider.setValue(50)
-        self.m1_slider.setValue(50)
-        self.m2_slider.setValue(50)
+        """Nastaví kalibrované parametre pre fyzické kyvadlo."""
+        self.L1_slider.setValue(14)   # ~0.14 m
+        self.L2_slider.setValue(9)    # ~0.09 m
+        self.m1_slider.setValue(50)   # 0.50 kg
+        self.m2_slider.setValue(34)   # 0.34 kg
+        self.damping_slider.setValue(70)  # 0.70
+
+        self.L1_edit_field.setText("0.135")
+        self.L2_edit_field.setText("0.087")
+        self.m1_edit_field.setText("0.50")
+        self.m2_edit_field.setText("0.34")
+
         self.update_initial_angles()
-        self.damping_slider.setValue(2) 
+        self.update_params_from_edit_for_L1()
+        self.update_params_from_edit_for_L2()
         self.update_parameters()
 
     def align_to_esp(self):
@@ -1011,8 +1022,24 @@ class DoublePendulumApp(QMainWindow):
         self.curve_esp_phase2.setData([], [])
         self.curve_esp_config.setData([], [])
 
+    def update_params_from_edit_for_L1(self):
+        """Pomocná metóda - vyvolá update parametrov z L1 edit fieldu."""
+        try:
+            val = float(self.L1_edit_field.text().replace(',', '.'))
+            self.L1_slider.setValue(int(val * 100))
+        except ValueError:
+            pass
+
+    def update_params_from_edit_for_L2(self):
+        """Pomocná metóda - vyvolá update parametrov z L2 edit fieldu."""
+        try:
+            val = float(self.L2_edit_field.text().replace(',', '.'))
+            self.L2_slider.setValue(int(val * 100))
+        except ValueError:
+            pass
+
     def update_params_from_edit(self):
-            
+
         sender = self.sender()  #
         try:
             # text to float
@@ -1078,6 +1105,367 @@ class DoublePendulumApp(QMainWindow):
         g_layout.addWidget(self.show_esp_pendulum_cb, 3, 0, 1, 2)
 
         self.tabs.addTab(tab, "ESP32 Dáta")
+
+    def create_multi_measurement_tab(self):
+        """Tab pre nahrávanie a porovnávanie viacerých ESP meraní."""
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+
+        # Inicializuj buffer pre merania
+        self.multi_measurements = []
+        self.current_measurement_index = 0
+        self.is_recording_multi = False
+        self.multi_record_start_time = None
+        self.multi_target_count = 10
+        self.multi_target_duration = 3.0
+        self.multi_target_theta1 = 60.0
+        self.multi_target_theta2 = 60.0
+        self.multi_target_tolerance = 3.0
+        self.multi_series_active = False
+
+        # ===== Ovládanie =====
+        control_group = QGroupBox("Nastavenie série meraní")
+        control_layout = QGridLayout()
+
+        control_layout.addWidget(QLabel("Počet meraní:"), 0, 0)
+        self.multi_count_spin = QSpinBox()
+        self.multi_count_spin.setRange(2, 50)
+        self.multi_count_spin.setValue(10)
+        control_layout.addWidget(self.multi_count_spin, 0, 1)
+
+        control_layout.addWidget(QLabel("Trvanie merania (s):"), 0, 2)
+        self.multi_duration_spin = QSpinBox()
+        self.multi_duration_spin.setRange(1, 30)
+        self.multi_duration_spin.setValue(3)
+        control_layout.addWidget(self.multi_duration_spin, 0, 3)
+
+        control_layout.addWidget(QLabel("Cieľový θ1 [°]:"), 1, 0)
+        self.multi_target_theta1_spin = QDoubleSpinBox()
+        self.multi_target_theta1_spin.setRange(-180.0, 180.0)
+        self.multi_target_theta1_spin.setSingleStep(1.0)
+        self.multi_target_theta1_spin.setDecimals(1)
+        self.multi_target_theta1_spin.setValue(60.0)
+        control_layout.addWidget(self.multi_target_theta1_spin, 1, 1)
+
+        control_layout.addWidget(QLabel("Cieľový θ2 [°]:"), 1, 2)
+        self.multi_target_theta2_spin = QDoubleSpinBox()
+        self.multi_target_theta2_spin.setRange(-180.0, 180.0)
+        self.multi_target_theta2_spin.setSingleStep(1.0)
+        self.multi_target_theta2_spin.setDecimals(1)
+        self.multi_target_theta2_spin.setValue(60.0)
+        control_layout.addWidget(self.multi_target_theta2_spin, 1, 3)
+
+        control_layout.addWidget(QLabel("Tolerancia [±°]:"), 2, 0)
+        self.multi_tolerance_spin = QDoubleSpinBox()
+        self.multi_tolerance_spin.setRange(0.5, 30.0)
+        self.multi_tolerance_spin.setSingleStep(0.5)
+        self.multi_tolerance_spin.setDecimals(1)
+        self.multi_tolerance_spin.setValue(3.0)
+        control_layout.addWidget(self.multi_tolerance_spin, 2, 1)
+
+        self.multi_position_label = QLabel(
+            "ESP θ1: ---°  θ2: ---°  |  Status: čakám na ESP dáta"
+        )
+        self.multi_position_label.setStyleSheet(
+            "font-weight: bold; padding: 5px; background-color: #444; color: white;"
+        )
+        control_layout.addWidget(self.multi_position_label, 3, 0, 1, 4)
+
+        self.multi_start_btn = QPushButton("Štart série meraní")
+        self.multi_start_btn.clicked.connect(self.start_multi_series)
+        control_layout.addWidget(self.multi_start_btn, 4, 0, 1, 2)
+
+        self.multi_record_btn = QPushButton("Spustiť meranie 1/10")
+        self.multi_record_btn.clicked.connect(self.record_single_measurement)
+        self.multi_record_btn.setEnabled(False)
+        control_layout.addWidget(self.multi_record_btn, 4, 2, 1, 2)
+
+        self.multi_reset_btn = QPushButton("Reset série")
+        self.multi_reset_btn.clicked.connect(self.reset_multi_series)
+        control_layout.addWidget(self.multi_reset_btn, 5, 0, 1, 2)
+
+        self.multi_export_btn = QPushButton("Exportovať CSV")
+        self.multi_export_btn.clicked.connect(self.export_multi_csv)
+        self.multi_export_btn.setEnabled(False)
+        control_layout.addWidget(self.multi_export_btn, 5, 2, 1, 2)
+
+        self.multi_status_label = QLabel("Pripravený - klikni 'Štart série meraní'")
+        control_layout.addWidget(self.multi_status_label, 6, 0, 1, 4)
+
+        control_group.setLayout(control_layout)
+        layout.addWidget(control_group)
+
+        # ===== Grafy θ1 a θ2 =====
+        graph_layout = QHBoxLayout()
+
+        self.multi_plot_theta1 = pg.PlotWidget(title="θ1 - všetky merania")
+        self.multi_plot_theta1.setBackground('w')
+        self.multi_plot_theta1.getAxis('left').enableAutoSIPrefix(False)
+        self.multi_plot_theta1.getAxis('bottom').enableAutoSIPrefix(False)
+        self.multi_plot_theta1.setLabel('left', 'θ1 [rad]')
+        self.multi_plot_theta1.setLabel('bottom', 'čas [s]')
+        self.multi_plot_theta1.addLegend()
+        graph_layout.addWidget(self.multi_plot_theta1)
+
+        self.multi_plot_theta2 = pg.PlotWidget(title="θ2 - všetky merania")
+        self.multi_plot_theta2.setBackground('w')
+        self.multi_plot_theta2.getAxis('left').enableAutoSIPrefix(False)
+        self.multi_plot_theta2.getAxis('bottom').enableAutoSIPrefix(False)
+        self.multi_plot_theta2.setLabel('left', 'θ2 [rad]')
+        self.multi_plot_theta2.setLabel('bottom', 'čas [s]')
+        self.multi_plot_theta2.addLegend()
+        graph_layout.addWidget(self.multi_plot_theta2)
+
+        layout.addLayout(graph_layout)
+
+        self.tabs.addTab(tab, "Multi-meranie")
+
+    def start_multi_series(self):
+        """Inicializuje sériu meraní."""
+        if self.serial_thread is None or not self.serial_thread.isRunning():
+            self.multi_status_label.setText("CHYBA: Najprv pripoj ESP na tabe 'ESP32 Dáta'!")
+            return
+
+        self.multi_target_count = self.multi_count_spin.value()
+        self.multi_target_duration = float(self.multi_duration_spin.value())
+        self.multi_target_theta1 = self.multi_target_theta1_spin.value()
+        self.multi_target_theta2 = self.multi_target_theta2_spin.value()
+        self.multi_target_tolerance = self.multi_tolerance_spin.value()
+        self.multi_measurements = []
+        self.current_measurement_index = 0
+        self.multi_series_active = True
+
+        self.multi_plot_theta1.clear()
+        self.multi_plot_theta2.clear()
+
+        self.multi_count_spin.setEnabled(False)
+        self.multi_duration_spin.setEnabled(False)
+        self.multi_target_theta1_spin.setEnabled(False)
+        self.multi_target_theta2_spin.setEnabled(False)
+        self.multi_tolerance_spin.setEnabled(False)
+        self.multi_start_btn.setEnabled(False)
+        self.multi_record_btn.setEnabled(True)
+        self.multi_record_btn.setText(f"Spustiť meranie 1/{self.multi_target_count}")
+        self.multi_export_btn.setEnabled(False)
+
+        self.multi_status_label.setText(
+            f"Séria pripravená. Zdvihni kyvadlo na θ1≈{self.multi_target_theta1:.0f}°, "
+            f"θ2≈{self.multi_target_theta2:.0f}° (±{self.multi_target_tolerance:.0f}°)"
+        )
+
+    def check_target_position(self):
+        """Skontroluje či sú aktuálne ESP uhly v tolerancii voči cieľu."""
+        if not hasattr(self, 'esp_theta1_data') or len(self.esp_theta1_data) == 0:
+            return (False, None, None, None, None)
+
+        N_avg = min(5, len(self.esp_theta1_data))
+        current_t1_rad = np.mean(self.esp_theta1_data[-N_avg:])
+        current_t2_rad = np.mean(self.esp_theta2_data[-N_avg:])
+        current_t1_deg = np.degrees(current_t1_rad)
+        current_t2_deg = np.degrees(current_t2_rad)
+
+        diff1 = abs(current_t1_deg - self.multi_target_theta1)
+        diff2 = abs(current_t2_deg - self.multi_target_theta2)
+
+        in_tolerance = (diff1 <= self.multi_target_tolerance and
+                        diff2 <= self.multi_target_tolerance)
+
+        return (in_tolerance, current_t1_deg, current_t2_deg, diff1, diff2)
+
+    def update_multi_position_indicator(self):
+        """Aktualizuje live indikátor pozície ESP kyvadla."""
+        if not hasattr(self, 'multi_position_label'):
+            return
+
+        result = self.check_target_position()
+        in_tol, t1, t2, d1, d2 = result
+
+        if t1 is None:
+            self.multi_position_label.setText(
+                "ESP θ1: ---°  θ2: ---°  |  Status: čakám na ESP dáta"
+            )
+            self.multi_position_label.setStyleSheet(
+                "font-weight: bold; padding: 5px; background-color: #444; color: white;"
+            )
+            return
+
+        if not self.multi_series_active:
+            self.multi_position_label.setText(
+                f"ESP θ1: {t1:+.1f}°  θ2: {t2:+.1f}°  |  Séria neaktívna"
+            )
+            self.multi_position_label.setStyleSheet(
+                "font-weight: bold; padding: 5px; background-color: #444; color: white;"
+            )
+            return
+
+        if in_tol:
+            self.multi_position_label.setText(
+                f"ESP θ1: {t1:+.1f}° (Δ{d1:.1f}°)  "
+                f"θ2: {t2:+.1f}° (Δ{d2:.1f}°)  |  ✓ V TOLERANCII"
+            )
+            self.multi_position_label.setStyleSheet(
+                "font-weight: bold; padding: 5px; "
+                "background-color: #2d8a2d; color: white;"
+            )
+        else:
+            self.multi_position_label.setText(
+                f"ESP θ1: {t1:+.1f}° (Δ{d1:.1f}°)  "
+                f"θ2: {t2:+.1f}° (Δ{d2:.1f}°)  |  ✗ MIMO TOLERANCIE"
+            )
+            self.multi_position_label.setStyleSheet(
+                "font-weight: bold; padding: 5px; "
+                "background-color: #aa2222; color: white;"
+            )
+
+    def record_single_measurement(self):
+        """Začne nahrávanie jedného merania - len ak je v tolerancii."""
+        if self.is_recording_multi:
+            return
+
+        in_tol, t1, t2, d1, d2 = self.check_target_position()
+
+        if not in_tol:
+            if t1 is None:
+                self.multi_status_label.setText(
+                    "CHYBA: Žiadne ESP dáta. Skontroluj pripojenie."
+                )
+            else:
+                self.multi_status_label.setText(
+                    f"✗ ODMIETNUTÉ: Aktuálne θ1={t1:+.1f}° (Δ{d1:.1f}°), "
+                    f"θ2={t2:+.1f}° (Δ{d2:.1f}°). "
+                    f"Cieľ θ1={self.multi_target_theta1:+.0f}°, "
+                    f"θ2={self.multi_target_theta2:+.0f}° "
+                    f"±{self.multi_target_tolerance:.0f}°. Uprav polohu kyvadla."
+                )
+            return
+
+        self.current_measurement_data = {'time': [], 'theta1': [], 'theta2': []}
+        self.is_recording_multi = True
+        self.multi_record_start_time = time.time()
+
+        self.multi_record_btn.setEnabled(False)
+        self.multi_status_label.setText(
+            f"NAHRÁVAM meranie {self.current_measurement_index + 1}/{self.multi_target_count} "
+            f"(štart θ1={t1:+.1f}°, θ2={t2:+.1f}°) - "
+            f"PUSTI KYVADLO! ({self.multi_target_duration:.0f} s)"
+        )
+
+        QTimer.singleShot(int(self.multi_target_duration * 1000), self.finish_single_measurement)
+
+    def finish_single_measurement(self):
+        """Ukončí aktuálne meranie a pripraví ďalšie alebo dokončí sériu."""
+        if not self.is_recording_multi:
+            return
+
+        self.is_recording_multi = False
+
+        if len(self.current_measurement_data['time']) > 5:
+            self.multi_measurements.append(self.current_measurement_data.copy())
+
+            color = self.get_measurement_color(self.current_measurement_index)
+            t_arr = np.array(self.current_measurement_data['time'])
+            th1_arr = np.array(self.current_measurement_data['theta1'])
+            th2_arr = np.array(self.current_measurement_data['theta2'])
+
+            self.multi_plot_theta1.plot(
+                t_arr, th1_arr,
+                pen=pg.mkPen(color=color, width=2),
+                name=f'M{self.current_measurement_index + 1}'
+            )
+            self.multi_plot_theta2.plot(
+                t_arr, th2_arr,
+                pen=pg.mkPen(color=color, width=2),
+                name=f'M{self.current_measurement_index + 1}'
+            )
+
+        self.current_measurement_index += 1
+
+        if self.current_measurement_index >= self.multi_target_count:
+            self.multi_series_active = False
+            self.multi_record_btn.setEnabled(False)
+            self.multi_record_btn.setText("Séria dokončená")
+            self.multi_export_btn.setEnabled(True)
+            self.multi_status_label.setText(
+                f"✓ Séria dokončená! {self.current_measurement_index} meraní zaznamenaných. "
+                f"Môžeš exportovať CSV."
+            )
+        else:
+            self.multi_record_btn.setEnabled(True)
+            self.multi_record_btn.setText(
+                f"Spustiť meranie {self.current_measurement_index + 1}/{self.multi_target_count}"
+            )
+            self.multi_status_label.setText(
+                f"Meranie {self.current_measurement_index} ukončené. "
+                f"Vráť kyvadlo na cieľovú pozíciu pre ďalšie meranie."
+            )
+
+    def get_measurement_color(self, index):
+        """Vráti farbu pre dané meranie (cyklicky)."""
+        colors = [
+            (228, 26, 28),
+            (55, 126, 184),
+            (77, 175, 74),
+            (152, 78, 163),
+            (255, 127, 0),
+            (255, 255, 51),
+            (166, 86, 40),
+            (247, 129, 191),
+            (153, 153, 153),
+            (0, 0, 0),
+        ]
+        return colors[index % len(colors)]
+
+    def reset_multi_series(self):
+        """Reset série meraní."""
+        self.multi_measurements = []
+        self.current_measurement_index = 0
+        self.is_recording_multi = False
+        self.multi_series_active = False
+
+        self.multi_plot_theta1.clear()
+        self.multi_plot_theta2.clear()
+
+        self.multi_count_spin.setEnabled(True)
+        self.multi_duration_spin.setEnabled(True)
+        self.multi_target_theta1_spin.setEnabled(True)
+        self.multi_target_theta2_spin.setEnabled(True)
+        self.multi_tolerance_spin.setEnabled(True)
+        self.multi_start_btn.setEnabled(True)
+        self.multi_record_btn.setEnabled(False)
+        self.multi_record_btn.setText("Spustiť meranie 1/10")
+        self.multi_export_btn.setEnabled(False)
+
+        self.multi_status_label.setText("Pripravený - klikni 'Štart série meraní'")
+
+    def export_multi_csv(self):
+        """Export všetkých meraní do jedného CSV súboru."""
+        if not self.multi_measurements:
+            self.multi_status_label.setText("Žiadne dáta na export.")
+            return
+
+        filename, _ = QFileDialog.getSaveFileName(
+            self,
+            "Uložiť multi-meranie ako CSV",
+            f"multi_meranie_{len(self.multi_measurements)}.csv",
+            "CSV Files (*.csv)"
+        )
+
+        if not filename:
+            return
+
+        try:
+            with open(filename, 'w', newline='', encoding='utf-8') as f:
+                writer = csv.writer(f)
+                writer.writerow(['measurement_id', 'time_s', 'theta1_rad', 'theta2_rad'])
+
+                for idx, m in enumerate(self.multi_measurements):
+                    for i in range(len(m['time'])):
+                        writer.writerow([idx + 1, m['time'][i], m['theta1'][i], m['theta2'][i]])
+
+            self.multi_status_label.setText(f"✓ Exportované do: {filename}")
+        except Exception as e:
+            self.multi_status_label.setText(f"CHYBA pri exporte: {e}")
+
     def refresh_ports(self):
 
         self.port_selector.clear()
@@ -1164,6 +1552,18 @@ class DoublePendulumApp(QMainWindow):
         else:
             self.canvas.esp_coords = None
             self.canvas.update()
+
+        # Multi-meranie - aktualizuj live indikátor pozície (vždy, aj bez simulácie)
+        if hasattr(self, 'multi_position_label'):
+            self.update_multi_position_indicator()
+
+        # Multi-meranie - ak práve nahráme, ulož aj sem (nezávisle od simulácie)
+        if hasattr(self, 'is_recording_multi') and self.is_recording_multi:
+            elapsed = time.time() - self.multi_record_start_time
+            if elapsed <= self.multi_target_duration:
+                self.current_measurement_data['time'].append(elapsed)
+                self.current_measurement_data['theta1'].append(r1)
+                self.current_measurement_data['theta2'].append(r2)
 
         # Buffer plníme iba keď sim beží
         if not self.simulator.is_running:

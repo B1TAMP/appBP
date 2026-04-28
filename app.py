@@ -91,6 +91,7 @@ class DoublePendulumApp(QMainWindow):
         ctrl.addWidget(self._build_params_group())
         ctrl.addLayout(self._build_control_buttons())
         ctrl.addWidget(self._build_display_group())
+        ctrl.addWidget(self._build_compound_group())
         ctrl.addWidget(self._build_status_group())
         ctrl.addStretch()
 
@@ -242,6 +243,72 @@ class DoublePendulumApp(QMainWindow):
         row.addWidget(self.compound_cb)
 
         group.setLayout(row)
+        return group
+
+    def _build_compound_group(self):
+        group = QGroupBox("Compound parametre (kalibrácia)")
+        grid = QGridLayout()
+
+        grid.addWidget(QLabel("I1 [kg·m²]"), 0, 0)
+        self.i1_slider = QSlider(Qt.Orientation.Horizontal)
+        self.i1_slider.setRange(5, 100)   # ×10⁻⁴ kg·m²
+        self.i1_slider.setValue(34)
+        self.i1_edit = QLineEdit(f"{34e-4:.4f}")
+        self.i1_edit.setMaximumWidth(70)
+        self.i1_slider.valueChanged.connect(self.update_compound_params)
+        self.i1_edit.returnPressed.connect(self.update_compound_params)
+        grid.addWidget(self.i1_slider, 0, 1)
+        grid.addWidget(self.i1_edit, 0, 2)
+
+        grid.addWidget(QLabel("I2 [kg·m²]"), 1, 0)
+        self.i2_slider = QSlider(Qt.Orientation.Horizontal)
+        self.i2_slider.setRange(2, 50)
+        self.i2_slider.setValue(15)
+        self.i2_edit = QLineEdit(f"{15e-4:.4f}")
+        self.i2_edit.setMaximumWidth(70)
+        self.i2_slider.valueChanged.connect(self.update_compound_params)
+        self.i2_edit.returnPressed.connect(self.update_compound_params)
+        grid.addWidget(self.i2_slider, 1, 1)
+        grid.addWidget(self.i2_edit, 1, 2)
+
+        grid.addWidget(QLabel("d_cm1 [m]"), 2, 0)
+        self.dcm1_slider = QSlider(Qt.Orientation.Horizontal)
+        self.dcm1_slider.setRange(10, 200)  # ×10⁻³ m
+        self.dcm1_slider.setValue(56)
+        self.dcm1_edit = QLineEdit(f"{56e-3:.4f}")
+        self.dcm1_edit.setMaximumWidth(70)
+        self.dcm1_slider.valueChanged.connect(self.update_compound_params)
+        self.dcm1_edit.returnPressed.connect(self.update_compound_params)
+        grid.addWidget(self.dcm1_slider, 2, 1)
+        grid.addWidget(self.dcm1_edit, 2, 2)
+
+        grid.addWidget(QLabel("d_cm2 [m]"), 3, 0)
+        self.dcm2_slider = QSlider(Qt.Orientation.Horizontal)
+        self.dcm2_slider.setRange(10, 150)
+        self.dcm2_slider.setValue(49)
+        self.dcm2_edit = QLineEdit(f"{49e-3:.4f}")
+        self.dcm2_edit.setMaximumWidth(70)
+        self.dcm2_slider.valueChanged.connect(self.update_compound_params)
+        self.dcm2_edit.returnPressed.connect(self.update_compound_params)
+        grid.addWidget(self.dcm2_slider, 3, 1)
+        grid.addWidget(self.dcm2_edit, 3, 2)
+
+        grid.addWidget(QLabel("L1_geom [m]"), 4, 0)
+        self.lgeom_slider = QSlider(Qt.Orientation.Horizontal)
+        self.lgeom_slider.setRange(50, 300)
+        self.lgeom_slider.setValue(125)
+        self.lgeom_edit = QLineEdit(f"{125e-3:.4f}")
+        self.lgeom_edit.setMaximumWidth(70)
+        self.lgeom_slider.valueChanged.connect(self.update_compound_params)
+        self.lgeom_edit.returnPressed.connect(self.update_compound_params)
+        grid.addWidget(self.lgeom_slider, 4, 1)
+        grid.addWidget(self.lgeom_edit, 4, 2)
+
+        reset_btn = QPushButton("Reset compound")
+        reset_btn.clicked.connect(self.reset_compound_params)
+        grid.addWidget(reset_btn, 5, 0, 1, 3)
+
+        group.setLayout(grid)
         return group
 
     def _build_status_group(self):
@@ -593,6 +660,31 @@ class DoublePendulumApp(QMainWindow):
         else:
             print("Aktívny model: POINT-MASS (bodové hmotnosti)")
 
+    def update_compound_params(self):
+        i1   = self.i1_slider.value()   * 1e-4
+        i2   = self.i2_slider.value()   * 1e-4
+        dcm1 = self.dcm1_slider.value() * 1e-3
+        dcm2 = self.dcm2_slider.value() * 1e-3
+        lg   = self.lgeom_slider.value()* 1e-3
+        self.simulator.I1_pivot  = i1
+        self.simulator.I2_pivot  = i2
+        self.simulator.d_cm1     = dcm1
+        self.simulator.d_cm2     = dcm2
+        self.simulator.L1_geom   = lg
+        self.i1_edit.setText(f"{i1:.4f}")
+        self.i2_edit.setText(f"{i2:.4f}")
+        self.dcm1_edit.setText(f"{dcm1:.4f}")
+        self.dcm2_edit.setText(f"{dcm2:.4f}")
+        self.lgeom_edit.setText(f"{lg:.4f}")
+
+    def reset_compound_params(self):
+        self.i1_slider.setValue(34)
+        self.i2_slider.setValue(15)
+        self.dcm1_slider.setValue(56)
+        self.dcm2_slider.setValue(49)
+        self.lgeom_slider.setValue(125)
+        self.update_compound_params()
+
     def toggle_esp_graphs(self, state):
         self.show_esp_on_graphs = (state == Qt.CheckState.Checked.value)
         if not self.show_esp_on_graphs:
@@ -695,19 +787,26 @@ class DoublePendulumApp(QMainWindow):
         self.esp_theta1_data.append(r1)
         self.esp_theta2_data.append(r2)
 
-        # Omega — centrálna diferencia cez 5 bodov
+        # Omega — centrálna diferencia, celý buffer sa prepočíta vektorizovane
+        # Zaručuje rovnakú dĺžku omega bufferov ako theta bufferov
         WINDOW = 5
-        if len(self.esp_theta1_data) >= WINDOW:
-            dt_total = self.esp_time_data[-1] - self.esp_time_data[-WINDOW]
-            if dt_total > 0:
-                w1 = (self.esp_theta1_data[-1] - self.esp_theta1_data[-WINDOW]) / dt_total
-                w2 = (self.esp_theta2_data[-1] - self.esp_theta2_data[-WINDOW]) / dt_total
-            else:
-                w1 = w2 = 0.0
-        else:
-            w1 = w2 = 0.0
-        self.esp_omega1_data.append(w1)
-        self.esp_omega2_data.append(w2)
+        N = len(self.esp_theta1_data)
+        t_arr   = np.array(self.esp_time_data)
+        th1_arr = np.array(self.esp_theta1_data)
+        th2_arr = np.array(self.esp_theta2_data)
+        omega1 = np.zeros(N)
+        omega2 = np.zeros(N)
+        if N >= 2 * WINDOW + 1:
+            dt_win = t_arr[2 * WINDOW:] - t_arr[:-2 * WINDOW]
+            dt_win[dt_win == 0] = 1e-9
+            omega1[WINDOW:-WINDOW] = (th1_arr[2 * WINDOW:] - th1_arr[:-2 * WINDOW]) / dt_win
+            omega2[WINDOW:-WINDOW] = (th2_arr[2 * WINDOW:] - th2_arr[:-2 * WINDOW]) / dt_win
+            omega1[:WINDOW]  = omega1[WINDOW]
+            omega2[:WINDOW]  = omega2[WINDOW]
+            omega1[-WINDOW:] = omega1[-WINDOW - 1]
+            omega2[-WINDOW:] = omega2[-WINDOW - 1]
+        self.esp_omega1_data = omega1.tolist()
+        self.esp_omega2_data = omega2.tolist()
 
         MAX_POINTS = 2000
         if len(self.esp_time_data) > MAX_POINTS:
@@ -723,7 +822,9 @@ class DoublePendulumApp(QMainWindow):
         """Timer callback (20 FPS) — prekreslí ESP grafy počas simulácie."""
         if not self.esp_needs_graph_update or not self.simulator.is_running:
             return
-        if not self.esp_time_data:
+        if (len(self.esp_time_data) < 2
+                or not self.esp_omega1_data
+                or len(self.esp_omega1_data) != len(self.esp_theta1_data)):
             return
         self.esp_needs_graph_update = False
 
